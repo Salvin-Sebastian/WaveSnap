@@ -557,33 +557,76 @@ function listenSSE(jobId, outDir) {
       return;
     }
 
-    if (msg.type === "progress") {
+    if (msg.type === "playlist_progress") {
       const pct = msg.percent || 0;
       setProgress(pct, msg.speed || "");
+      if (msg.status_text) {
+        progLabel.textContent = msg.status_text;
+      } else if (msg.done && msg.total) {
+        progLabel.textContent = `Packaging song ${msg.done} of ${msg.total} into ZIP (${pct}%)…`;
+      }
       if (msg.filename) {
         progTrack.textContent = msg.filename.split(/[\\/]/).pop();
       }
+      return;
+    }
+
+    if (msg.type === "progress") {
+      // Only track progress here if it's a single song to avoid bouncing
+      if (state.tracksTotal <= 1) {
+        const pct = msg.percent || 0;
+        setProgress(pct, msg.speed || "");
+        if (msg.filename) {
+          progTrack.textContent = msg.filename.split(/[\\/]/).pop();
+        }
+      }
+      return;
     }
 
     if (msg.type === "track_done") {
-      state.tracksDone++;
-      progLabel.textContent = state.tracksTotal > 1
-        ? `Converting track ${state.tracksDone} of ${state.tracksTotal} (320kbps MP3)…`
-        : "Encoding audio to 320kbps MP3…";
-      setProgress(100, "");
+      // For single tracks only; playlists track progress continuously via playlist_progress
+      if (state.tracksTotal <= 1) {
+        progLabel.textContent = "Encoding audio to 320kbps MP3…";
+        setProgress(100, "");
+      }
+      return;
     }
 
     if (msg.type === "error") {
       toast(`Error: ${msg.message}`, "error");
+      return;
     }
 
     if (msg.type === "done") {
       state.activeSSE.close();
       state.activeSSE = null;
-      progSection.classList.add("hidden");
       dlBtn.disabled = false;
-      loadFiles(outDir);
-      toast("Audio conversion complete! Sending to your computer… 🎵", "success");
+
+      const isPlaylist = msg.is_playlist || (state.tracksTotal > 1);
+      const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const deviceLabel = isMobile ? "Phone" : "Device";
+
+      if (isPlaylist) {
+        // Keep progress card visible showing complete packaging state
+        setProgress(100, "");
+        progLabel.textContent = `🎉 All songs packaged into ZIP! Downloading to your ${deviceLabel}…`;
+        progTrack.textContent = msg.zip_filename || "Playlist.zip";
+
+        toast(`All songs saved into ZIP! Sending to your ${deviceLabel}… 🎵`, "success", 5000);
+
+        // Immediate direct download trigger of the pre-built ZIP
+        if (msg.zip_url) {
+          triggerBrowserDownload(msg.zip_url, msg.zip_filename || "Playlist.zip");
+        }
+
+        // Also load files section so user has full backup access and hero button
+        loadFiles(outDir, msg);
+      } else {
+        progSection.classList.add("hidden");
+        loadFiles(outDir, msg);
+        toast("Audio conversion complete! Sending to your device… 🎵", "success");
+      }
+      return;
     }
   };
 
@@ -596,7 +639,7 @@ function listenSSE(jobId, outDir) {
 }
 
 // ── Load files ───────────────────────────────────────────────
-async function loadFiles(outDir) {
+async function loadFiles(outDir, doneMsg) {
   try {
     const res  = await fetch("/api/files-for-job", {
       method: "POST",
@@ -614,19 +657,18 @@ async function loadFiles(outDir) {
     filesSection.classList.remove("hidden");
     fileList.innerHTML = "";
 
+    const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const deviceLabel = isMobile ? "Phone" : "Device";
     const totalSizeStr = data.total_size ? ` (${fmtBytes(data.total_size)})` : "";
     const zipTitle = state.currentInfo ? (state.currentInfo.title || data.folder || "Playlist") : (data.folder || "Playlist");
 
     // ── Setup Direct Save Hero Banner ──
     if (saveHero) {
-      const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      const deviceLabel = isMobile ? "Phone" : "Device";
-
       if (files.length === 1) {
         const singleExt = (files[0].name.split('.').pop() || "mp3").toUpperCase();
         if (saveHeroBadge) saveHeroBadge.textContent = "Audio Ready";
-        if (saveHeroHeadline) saveHeroHeadline.textContent = `Save "${files[0].name}" to Your Device`;
-        if (saveHeroSub) saveHeroSub.textContent = `Your 320kbps MP3 with album artwork is ready. Tap the button below to save directly into your ${deviceLabel}'s Downloads folder.`;
+        if (saveHeroHeadline) saveHeroHeadline.textContent = `Save "${files[0].name}" to Your ${deviceLabel}`;
+        if (saveHeroSub) saveHeroSub.textContent = `Your 320kbps MP3 with album artwork is ready. Tap below if download did not start automatically.`;
         if (heroDlText) heroDlText.textContent = `Save to My ${deviceLabel} (${singleExt} · ${fmtBytes(files[0].size)})`;
         if (heroDlBtn) heroDlBtn.onclick = () => {
           const dlUrl = `/api/download-file?path=${encodeURIComponent(files[0].rel)}&name=${encodeURIComponent(files[0].name || "")}`;
@@ -637,18 +679,21 @@ async function loadFiles(outDir) {
         triggerSave(files[0].rel, files[0].name);
         toast(`Sending "${files[0].name}" to your ${deviceLabel}…`, "success", 4000);
       } else {
+        const zipUrl = (doneMsg && doneMsg.zip_url) ? doneMsg.zip_url : `/api/download-zip?folder=${encodeURIComponent(data.folder)}&title=${encodeURIComponent(zipTitle)}`;
+        const zipName = (doneMsg && doneMsg.zip_filename) ? doneMsg.zip_filename : `${zipTitle}.zip`;
+        const zipSizeStr = (doneMsg && doneMsg.zip_size) ? ` · ${fmtBytes(doneMsg.zip_size)}` : totalSizeStr;
+
         if (saveHeroBadge) saveHeroBadge.textContent = `Playlist Ready (${files.length} Songs)`;
-        if (saveHeroHeadline) saveHeroHeadline.textContent = `Save "${zipTitle}.zip" to Your Device`;
-        if (saveHeroSub) saveHeroSub.textContent = `All ${files.length} songs and album art are packaged in a ZIP archive. Tap below to download to your ${deviceLabel}, or save individual songs below.`;
-        if (heroDlText) heroDlText.textContent = `Save All to My ${deviceLabel} (.ZIP${totalSizeStr})`;
+        if (saveHeroHeadline) saveHeroHeadline.textContent = `Save "${zipName}" to Your ${deviceLabel}`;
+        if (saveHeroSub) saveHeroSub.textContent = `All ${files.length} songs and artwork are packaged in a ZIP archive. Tap below to download immediately, or save individual tracks below.`;
+        if (heroDlText) heroDlText.textContent = `Save All to My ${deviceLabel} (.ZIP${zipSizeStr})`;
         if (heroDlBtn) heroDlBtn.onclick = () => {
-          triggerZipDownload(data.folder, zipTitle);
+          triggerBrowserDownload(zipUrl, zipName);
         };
 
-        // Auto-trigger browser download to device for playlist ZIP
-        if (data.folder) {
-          triggerZipDownload(data.folder, zipTitle);
-          toast(`Sending "${zipTitle}.zip" to your ${deviceLabel}…`, "success", 5000);
+        // If not already triggered by SSE done event:
+        if (!doneMsg || !doneMsg.zip_url) {
+          triggerBrowserDownload(zipUrl, zipName);
         }
       }
 
@@ -753,15 +798,6 @@ function triggerZipDownload(folder, title) {
   const zipTitle = title || folder;
   const url = `/api/download-zip?folder=${encodeURIComponent(folder)}&title=${encodeURIComponent(zipTitle)}`;
   triggerBrowserDownload(url, `${zipTitle}.zip`);
-
-  // Automatically delete temporary files from Render server 2 minutes after download starts
-  setTimeout(() => {
-    fetch("/api/cleanup-job", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ folder }),
-    }).catch(() => {});
-  }, 120000);
 }
 
 function triggerBrowserDownload(url, filename) {

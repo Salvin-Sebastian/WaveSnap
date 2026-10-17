@@ -10,6 +10,7 @@ import tempfile
 import subprocess
 import concurrent.futures
 from pathlib import Path
+from urllib.parse import quote
 
 import requests as http_requests
 from bs4 import BeautifulSoup
@@ -349,7 +350,13 @@ def _make_ytdlp_hook(job_id: str):
         q = _job_queues.get(job_id)
         if not q:
             return
+
         status = d.get("status")
+        info_dict = d.get("info_dict") or {}
+        p_index = d.get("playlist_index") or info_dict.get("playlist_index") or 1
+        p_count = d.get("playlist_count") or info_dict.get("playlist_count") or info_dict.get("n_entries") or 1
+        is_pl = bool(p_count and p_count > 1)
+
         if status == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
             done  = d.get("downloaded_bytes", 0)
@@ -357,13 +364,44 @@ def _make_ytdlp_hook(job_id: str):
             spd   = d.get("speed") or 0
             spd_s = f"{spd/1_000_000:.2f} MB/s" if spd >= 1_000_000 else f"{spd/1024:.1f} KB/s"
             fname = Path(d.get("filename", "")).name
-            q.put({"type": "progress", "percent": pct, "speed": spd_s,
-                   "eta": d.get("eta") or 0, "filename": fname})
+
+            if is_pl:
+                track_pct = (pct / 100.0) if pct else 0
+                overall_pct = min(92.0, round((((p_index - 1) + track_pct) / p_count) * 92.0, 1))
+                q.put({
+                    "type": "playlist_progress",
+                    "percent": overall_pct,
+                    "speed": spd_s,
+                    "done": p_index,
+                    "total": p_count,
+                    "filename": fname,
+                    "status_text": f"Packaging song {p_index} of {p_count} into ZIP ({overall_pct}%)"
+                })
+            else:
+                q.put({"type": "progress", "percent": pct, "speed": spd_s,
+                       "eta": d.get("eta") or 0, "filename": fname})
+
         elif status == "finished":
             fname = Path(d.get("filename", "")).name
-            q.put({"type": "track_done", "filename": fname})
+            if is_pl:
+                overall_pct = min(92.0, round((p_index / p_count) * 92.0, 1))
+                q.put({
+                    "type": "playlist_progress",
+                    "percent": overall_pct,
+                    "speed": "",
+                    "done": p_index,
+                    "total": p_count,
+                    "filename": fname,
+                    "status_text": f"Packaging song {p_index} of {p_count} into ZIP ({overall_pct}%)"
+                })
+            else:
+                q.put({"type": "track_done", "filename": fname})
+
         elif status == "error":
-            q.put({"type": "error", "message": str(d.get("error", "Unknown"))})
+            if is_pl:
+                print(f"[SKIP] Video {p_index} error in playlist skipped: {d.get('error')}")
+            else:
+                q.put({"type": "error", "message": str(d.get("error", "Unknown"))})
     return hook
 
 
@@ -622,6 +660,67 @@ def find_jiosaavn_url(title: str, artist: str = "") -> str | None:
     return None
 
 
+# ── Playlist ZIP Packaging Helper ─────────────────────────────────────────────
+
+def _finalize_playlist_zip(job_id: str, out_dir: Path, title: str = "") -> dict | None:
+    """Pre-packages downloaded audio files and artwork into a ZIP archive for instant 1-click delivery."""
+    q = _job_queues.get(job_id)
+    folder_name = out_dir.name
+    clean_title = sanitize_folder(title or folder_name or "Playlist")
+    zip_filename = f"{clean_title}.zip"
+    zip_path = BASE_DIR / f"{sanitize_folder(folder_name)}.zip"
+
+    valid_audio_exts = {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"}
+    valid_exts = valid_audio_exts | {".jpg", ".jpeg", ".png"}
+
+    if not out_dir.exists():
+        return None
+
+    audio_files = [f for f in out_dir.iterdir() if f.is_file() and f.suffix.lower() in valid_audio_exts and f.stat().st_size > 10000]
+    if not audio_files:
+        return None
+
+    if q:
+        q.put({
+            "type": "playlist_progress",
+            "percent": 96,
+            "speed": "",
+            "done": len(audio_files),
+            "total": len(audio_files),
+            "filename": f"Packaging {len(audio_files)} songs into {zip_filename}…",
+            "status_text": f"Packaging {len(audio_files)} songs into {zip_filename} (96%)…"
+        })
+
+    # ZIP_STORED is instantaneous (<0.1s for 200MB) since audio files are already compressed MP3s
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+        for f in out_dir.iterdir():
+            if f.is_file() and f.suffix.lower() in valid_exts and f.stat().st_size > 500:
+                zf.write(f, arcname=f.name)
+
+    zip_size = zip_path.stat().st_size
+    zip_url = f"/api/download-zip?folder={quote(folder_name)}&title={quote(clean_title)}"
+
+    if q:
+        q.put({
+            "type": "playlist_progress",
+            "percent": 100,
+            "speed": "",
+            "done": len(audio_files),
+            "total": len(audio_files),
+            "filename": zip_filename,
+            "status_text": f"🎉 All {len(audio_files)} songs packaged into {zip_filename}! Sending to your device…"
+        })
+
+    return {
+        "zip_url": zip_url,
+        "zip_filename": zip_filename,
+        "zip_size": zip_size,
+        "count": len(audio_files),
+        "folder": folder_name,
+        "title": clean_title,
+    }
+
+
 # ── Batch Tracklist Downloader (Spotify, Apple Music, etc.) ───────────────────
 
 def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", tracks: list = None, cover_url: str = "", codec: str = "mp3", quality: str = "320", default_source: str = "Audio"):
@@ -655,113 +754,133 @@ def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", track
         total_tracks = len(tracks)
         completed_lock = threading.Lock()
         completed_count = 0
+        successful_count = 0
 
         q.put({
-            "type": "progress",
+            "type": "playlist_progress",
             "percent": 0,
             "speed": "",
-            "filename": f"Starting {default_source} download for {total_tracks} tracks…"
+            "done": 0,
+            "total": total_tracks,
+            "filename": f"Starting {default_source} download for {total_tracks} tracks into ZIP…",
+            "status_text": f"Packaging 0 of {total_tracks} songs into ZIP (0%)…"
         })
 
         def download_single_track(idx: int, tr: dict):
             if _job_cancelled.get(job_id):
                 return
-            nonlocal completed_count
+            nonlocal completed_count, successful_count
+
             t_title = tr.get("title", "").strip()
             t_artist = tr.get("artist", "").strip()
-            if not t_title:
-                return
-
             sanitized_artist = sanitize_folder(t_artist)
-            sanitized_title = sanitize_folder(t_title)
-            base_name = f"{sanitized_artist} - {sanitized_title}"
-
-            target_file = out_dir / f"{base_name}.{codec}"
-            if target_file.exists() and target_file.stat().st_size > 50000:
-                with completed_lock:
-                    completed_count += 1
-                    pct = round((completed_count / total_tracks) * 100, 1)
-                    q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"{base_name}.{codec}"})
-                    q.put({"type": "track_done", "filename": f"{base_name}.{codec}"})
-                return
-
-            outtmpl = str(out_dir / f"{base_name}.%(ext)s")
-
-            # Multi-tier resilient search & download pipeline:
-            # 1. JioSaavn (320kbps CD audio direct from Akamai/Cloudflare CDN, 0 bot check, 0 DRM)
-            # 2. YouTube Music / YouTube with android & tv_embedded clients
-            # 3. SoundCloud search (graceful DRM skip)
-            search_targets = []
-            jio_url = find_jiosaavn_url(t_title, t_artist)
-            if jio_url:
-                search_targets.append(("jiosaavn", jio_url))
-
-            clean_title = re.sub(r'\(.*?\)|\[.*?\]', '', t_title).strip()
-            search_targets.append(("youtube", f"ytsearch1:{clean_title} {t_artist} audio"))
-            search_targets.append(("youtube", f"ytsearch1:{t_title} {t_artist}"))
-            search_targets.append(("soundcloud", f"scsearch1:{clean_title} {t_artist}"))
-
-            # Slight thread staggering to prevent cloud bursting
-            time.sleep(min(idx * 0.15, 1.2))
+            sanitized_title = sanitize_folder(t_title or f"Track_{idx}")
+            base_name = f"{sanitized_artist} - {sanitized_title}" if sanitized_artist else sanitized_title
 
             success = False
-            for provider, target in search_targets:
-                if _job_cancelled.get(job_id) or success:
-                    break
+            try:
+                if not t_title:
+                    raise ValueError("Empty track title")
 
-                ydl_opts = {
-                    "format": "bestaudio/best",
-                    "outtmpl": outtmpl,
-                    "quiet": True,
-                    "no_warnings": True,
-                    "ignoreerrors": (provider == "soundcloud"),
-                    "retries": 3,
-                    "socket_timeout": 25,
-                    "geo_bypass": True,
-                }
-                if provider == "youtube":
-                    ydl_opts["extractor_args"] = {
-                        "youtube": {
-                            "player_client": ["android", "tv_embedded"],
-                            "player_skip": ["web", "mweb"]
-                        }
-                    }
-
-                if has_ffmpeg:
-                    ydl_opts["postprocessors"] = [
-                        {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality},
-                        {"key": "FFmpegMetadata", "add_metadata": True},
-                    ]
-
-                try:
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        ydl.download([target])
-
-                    # Locate downloaded audio file even if extension was changed by converter
-                    actual_file = target_file
-                    if not actual_file.exists():
-                        for f in out_dir.iterdir():
-                            if f.is_file() and f.stem == base_name and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"}:
-                                actual_file = f
-                                break
-
-                    if actual_file.exists() and actual_file.stat().st_size > 30000:
-                        success = True
-                        if not _job_cancelled.get(job_id):
-                            _tag_audio(actual_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url, cover_data=cover_data)
-                        break
-                except Exception as exc:
-                    print(f"[{provider}] Download failed for '{base_name}': {exc}")
-                    continue
-
-            with completed_lock:
-                completed_count += 1
-                pct = round((completed_count / total_tracks) * 100, 1)
-                if success:
-                    q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"{base_name}.{codec}"})
-                    q.put({"type": "track_done", "filename": f"{base_name}.{codec}"})
+                target_file = out_dir / f"{base_name}.{codec}"
+                if target_file.exists() and target_file.stat().st_size > 50000:
+                    success = True
                 else:
-                    q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"Skipped: {base_name}"})
+                    outtmpl = str(out_dir / f"{base_name}.%(ext)s")
+
+                    # Multi-tier resilient search & download pipeline:
+                    # 1. JioSaavn (direct 320kbps CD audio, 0 bot check, 0 DRM, instant CDN stream)
+                    # 2. YouTube Music / YouTube with android & tv_embedded clients
+                    # 3. SoundCloud
+                    search_targets = []
+                    jio_url = find_jiosaavn_url(t_title, t_artist)
+                    if jio_url:
+                        search_targets.append(("jiosaavn", jio_url))
+
+                    clean_title = re.sub(r'\(.*?\)|\[.*?\]', '', t_title).strip()
+                    search_targets.append(("youtube", f"ytsearch1:{clean_title} {t_artist} audio"))
+                    search_targets.append(("soundcloud", f"scsearch1:{clean_title} {t_artist}"))
+
+                    # Slight thread staggering to prevent cloud bursting
+                    time.sleep(min(idx * 0.12, 1.0))
+
+                    for provider, target in search_targets:
+                        if _job_cancelled.get(job_id) or success:
+                            break
+
+                        ydl_opts = {
+                            "format": "bestaudio/best",
+                            "outtmpl": outtmpl,
+                            "quiet": True,
+                            "no_warnings": True,
+                            "ignoreerrors": True,
+                            "retries": 1,
+                            "socket_timeout": 12,
+                            "geo_bypass": True,
+                        }
+                        if provider == "youtube":
+                            ydl_opts["extractor_args"] = {
+                                "youtube": {
+                                    "player_client": ["android", "tv_embedded"],
+                                    "player_skip": ["web", "mweb"]
+                                }
+                            }
+
+                        if has_ffmpeg:
+                            ydl_opts["postprocessors"] = [
+                                {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality},
+                                {"key": "FFmpegMetadata", "add_metadata": True},
+                            ]
+
+                        try:
+                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                                ydl.download([target])
+
+                            actual_file = target_file
+                            if not actual_file.exists():
+                                for f in out_dir.iterdir():
+                                    if f.is_file() and f.stem == base_name and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"}:
+                                        actual_file = f
+                                        break
+
+                            if actual_file.exists() and actual_file.stat().st_size > 30000:
+                                success = True
+                                if not _job_cancelled.get(job_id):
+                                    try:
+                                        _tag_audio(actual_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url, cover_data=cover_data)
+                                    except Exception:
+                                        pass
+                                break
+                        except Exception as exc:
+                            print(f"[{provider}] Skipped attempt on '{base_name}': {exc}")
+                            continue
+
+                if not success:
+                    print(f"[SKIP] Song '{base_name}' could not be downloaded from any source. Skipping to next song.")
+
+            except Exception as outer_exc:
+                print(f"[SKIP] Exception on track '{base_name}': {outer_exc}. Skipping.")
+                success = False
+
+            finally:
+                # GUARANTEED to execute for every single track:
+                with completed_lock:
+                    completed_count += 1
+                    if success:
+                        successful_count += 1
+                    # Overall progress climbs steadily from 0% to 92%
+                    overall_pct = min(92.0, round((completed_count / total_tracks) * 92.0, 1))
+                    status_msg = f"Packaging song {completed_count} of {total_tracks} into ZIP ({overall_pct}%)"
+                    fname_display = f"{base_name}.{codec}" if success else f"⚠️ Skipped: {base_name}"
+                    q.put({
+                        "type": "playlist_progress",
+                        "percent": overall_pct,
+                        "speed": "",
+                        "done": completed_count,
+                        "total": total_tracks,
+                        "filename": fname_display,
+                        "status_text": status_msg
+                    })
 
         workers = min(3, max(1, total_tracks))
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
@@ -775,15 +894,31 @@ def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", track
                     for f in futures:
                         f.cancel()
                     break
+
+        if _job_cancelled.get(job_id):
+            shutil.rmtree(out_dir, ignore_errors=True)
+            q.put({"type": "cancelled", "message": "Download stopped by user"})
+            return
+
+        # Package all downloaded tracks into a pre-built ZIP archive
+        zip_info = _finalize_playlist_zip(job_id, out_dir, title=title)
+        if not zip_info:
+            q.put({
+                "type": "error",
+                "message": "None of the tracks in this playlist could be downloaded. They may be unavailable or private."
+            })
+            return
+
+        done_payload = {"type": "done", "out_dir": str(out_dir), "is_playlist": True}
+        done_payload.update(zip_info)
+        q.put(done_payload)
+
     except Exception as exc:
         if not _job_cancelled.get(job_id):
             q.put({"type": "error", "message": str(exc)})
     finally:
         if _job_cancelled.get(job_id):
             shutil.rmtree(out_dir, ignore_errors=True)
-            q.put({"type": "cancelled", "message": "Download stopped by user"})
-        else:
-            q.put({"type": "done", "out_dir": str(out_dir)})
 
 
 # ── Specific Software Download Execution Handlers ─────────────────────────────
@@ -856,7 +991,16 @@ def _download_youtube(job_id: str, url: str, out_dir: Path, title: str = "", is_
             shutil.rmtree(out_dir, ignore_errors=True)
             q.put({"type": "cancelled", "message": "Download stopped by user"})
         else:
-            q.put({"type": "done", "out_dir": str(out_dir)})
+            zip_info = None
+            if out_dir.exists():
+                valid_audio = [f for f in out_dir.iterdir() if f.is_file() and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"} and f.stat().st_size > 10000]
+                if is_playlist or len(valid_audio) > 1:
+                    zip_info = _finalize_playlist_zip(job_id, out_dir, title=title)
+            done_payload = {"type": "done", "out_dir": str(out_dir)}
+            if zip_info:
+                done_payload.update(zip_info)
+                done_payload["is_playlist"] = True
+            q.put(done_payload)
 
 
 def _download_soundcloud(job_id: str, url: str, out_dir: Path, title: str = "", is_playlist: bool = False, cover_url: str = "", codec: str = "mp3", quality: str = "320"):
@@ -875,7 +1019,16 @@ def _download_soundcloud(job_id: str, url: str, out_dir: Path, title: str = "", 
             shutil.rmtree(out_dir, ignore_errors=True)
             q.put({"type": "cancelled", "message": "Download stopped by user"})
         else:
-            q.put({"type": "done", "out_dir": str(out_dir)})
+            zip_info = None
+            if out_dir.exists():
+                valid_audio = [f for f in out_dir.iterdir() if f.is_file() and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"} and f.stat().st_size > 10000]
+                if is_playlist or len(valid_audio) > 1:
+                    zip_info = _finalize_playlist_zip(job_id, out_dir, title=title)
+            done_payload = {"type": "done", "out_dir": str(out_dir)}
+            if zip_info:
+                done_payload.update(zip_info)
+                done_payload["is_playlist"] = True
+            q.put(done_payload)
 
 
 def _download_generic(job_id: str, url: str, out_dir: Path, title: str = "", is_playlist: bool = False, cover_url: str = "", codec: str = "mp3", quality: str = "320"):
@@ -894,7 +1047,16 @@ def _download_generic(job_id: str, url: str, out_dir: Path, title: str = "", is_
             shutil.rmtree(out_dir, ignore_errors=True)
             q.put({"type": "cancelled", "message": "Download stopped by user"})
         else:
-            q.put({"type": "done", "out_dir": str(out_dir)})
+            zip_info = None
+            if out_dir.exists():
+                valid_audio = [f for f in out_dir.iterdir() if f.is_file() and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"} and f.stat().st_size > 10000]
+                if is_playlist or len(valid_audio) > 1:
+                    zip_info = _finalize_playlist_zip(job_id, out_dir, title=title)
+            done_payload = {"type": "done", "out_dir": str(out_dir)}
+            if zip_info:
+                done_payload.update(zip_info)
+                done_payload["is_playlist"] = True
+            q.put(done_payload)
 
 
 # ── Specific Software Info Extractors ─────────────────────────────────────────
@@ -1326,34 +1488,35 @@ def download_zip():
     except ValueError:
         return "Access denied", 403
 
-    if not target_dir.exists() or not target_dir.is_dir():
-        return "Folder not found", 404
-
     clean_title = sanitize_folder(title or folder)
     zip_filename = f"{clean_title}.zip"
     zip_path = BASE_DIR / f"{sanitize_folder(folder)}.zip"
 
-    valid_exts = {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac", ".jpg", ".jpeg", ".png"}
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in target_dir.iterdir():
-            if f.is_file() and f.suffix.lower() in valid_exts:
-                zf.write(f, arcname=f.name)
+    # If pre-built zip doesn't exist, build it now from directory
+    if not zip_path.exists() or zip_path.stat().st_size == 0:
+        if not target_dir.exists() or not target_dir.is_dir():
+            return "Folder not found", 404
 
-    @after_this_request
-    def remove_zip(response):
-        try:
-            if zip_path.exists():
-                zip_path.unlink(missing_ok=True)
-        except Exception:
-            pass
-        return response
+        valid_exts = {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac", ".jpg", ".jpeg", ".png"}
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+            for f in target_dir.iterdir():
+                if f.is_file() and f.suffix.lower() in valid_exts and f.stat().st_size > 500:
+                    zf.write(f, arcname=f.name)
 
+    if not zip_path.exists() or zip_path.stat().st_size == 0:
+        return "Failed to prepare ZIP archive", 500
+
+    file_size = zip_path.stat().st_size
     response = send_from_directory(
         str(BASE_DIR.resolve()),
         zip_path.name,
         as_attachment=True,
         download_name=zip_filename
     )
+    # Ensure all browsers (desktop & mobile) treat as a direct binary attachment with known length
+    response.headers["Content-Length"] = str(file_size)
+    response.headers["Content-Type"] = "application/zip"
+    response.headers["Content-Disposition"] = f'attachment; filename="{zip_filename}"'
     response.headers["Content-Description"] = "File Transfer"
     response.headers["Content-Transfer-Encoding"] = "binary"
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
