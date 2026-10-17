@@ -1,0 +1,12 @@
+# Railway build configuration
+# Installs ffmpeg (required for MP3 conversion) alongside Python packages
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "gunicorn app:app --workers 2 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT"
+healthcheckPath = "/"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

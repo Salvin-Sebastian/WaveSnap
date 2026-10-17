@@ -1,0 +1,11 @@
+# nixpacks.toml — tells Railway's Nixpacks builder what system packages to install
+# ffmpeg is required for yt-dlp to convert audio to MP3 and embed metadata
+
+[phases.setup]
+nixPkgs = ["ffmpeg", "python312"]
+
+[phases.install]
+cmds = ["pip install -r requirements.txt"]
+
+[start]
+cmd = "gunicorn app:app --workers 2 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT"

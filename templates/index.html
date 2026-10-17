@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#09090b" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>WaveSnap — Music Downloader</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/wavesnap_logo.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/wavesnap_logo.png" />
+  <link rel="apple-touch-icon" href="/static/wavesnap_logo.png" />
+  <link rel="shortcut icon" href="/static/wavesnap_logo.png" />
+  <meta name="description" content="Download any song or full playlist as high-quality MP3 with album art and metadata. Supports YouTube, SoundCloud, Bandcamp and more." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+  <!-- Animated background -->
+  <div class="bg-canvas" aria-hidden="true">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <div class="app">
+
+    <!-- ══ Top Nav ══ -->
+    <header class="nav">
+      <div class="nav-inner">
+        <a href="/" class="brand" aria-label="WaveSnap home">
+          <img src="/static/wavesnap_logo.png" alt="WaveSnap logo" class="brand-logo" />
+          <span class="brand-name">WaveSnap</span>
+        </a>
+        <div class="nav-badge">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M9 18V5l12-2v13M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm12-2a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg>
+          MP3 · Best Quality
+        </div>
+      </div>
+    </header>
+
+    <!-- ══ Hero ══ -->
+    <section class="hero">
+      <div class="hero-inner">
+        <div class="hero-tag">Free · No Ads · No Limits</div>
+        <h1 class="hero-title">
+          Snap Any Song<br />
+          <span class="hero-accent">Instantly.</span>
+        </h1>
+        <p class="hero-desc">
+          Paste a link from YouTube, SoundCloud, Bandcamp &amp; more.<br class="hero-br" />
+          Get crystal-clear MP3 with full metadata &amp; album art.
+        </p>
+      </div>
+    </section>
+
+    <!-- ══ Download Card ══ -->
+    <main class="card" id="main-card">
+
+      <!-- URL input -->
+      <div class="url-block">
+        <label class="url-label" for="url-input">Song or Playlist Link</label>
+        <div class="url-row">
+          <div class="url-field">
+            <svg class="url-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+            <input
+              id="url-input"
+              type="url"
+              inputmode="url"
+              placeholder="Paste link here…"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="none"
+              spellcheck="false"
+            />
+            <button id="paste-btn" class="icon-btn" title="Paste from clipboard" aria-label="Paste">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2"/>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+            </button>
+          </div>
+          <button id="fetch-btn" class="btn btn-primary" aria-label="Fetch song info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <span id="fetch-label">Check Link</span>
+          </button>
+        </div>
+
+        <!-- Supported platforms row -->
+        <div class="platforms">
+          <span class="plat-label">Supports:</span>
+          <div class="plat-chips">
+            <span class="chip">YouTube</span>
+            <span class="chip">YT Music</span>
+            <span class="chip">SoundCloud</span>
+            <span class="chip">Bandcamp</span>
+            <span class="chip">Vimeo</span>
+            <span class="chip chip-more">+1000 more</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Info Preview ── -->
+      <div id="info-panel" class="info-panel hidden" role="region" aria-label="Track info">
+        <div class="info-art-wrap">
+          <img id="info-thumb" src="" alt="Cover art" class="info-art" />
+          <div id="info-type-badge" class="art-badge"></div>
+        </div>
+        <div class="info-body">
+          <p id="info-title"   class="info-title"></p>
+          <p id="info-channel" class="info-channel"></p>
+          <div class="info-tags">
+            <span id="info-count-tag" class="tag tag-blue"></span>
+            <span class="tag tag-green">MP3 · Best Quality</span>
+            <span class="tag tag-purple">Album Art + Metadata</span>
+          </div>
+          <div id="info-folder-row" class="folder-row hidden">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            Folder: <strong id="info-folder-name"></strong>
+          </div>
+          <button id="download-btn" class="btn btn-download" aria-label="Start download">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span id="download-label">Download</span>
+          </button>
+        </div>
+      </div>
+    </main>
+
+    <!-- ══ Progress ══ -->
+    <section id="progress-section" class="progress-card hidden" aria-live="polite">
+      <div class="prog-header">
+        <div class="prog-spinner" aria-hidden="true"></div>
+        <div class="prog-text">
+          <span id="prog-label" class="prog-label">Preparing…</span>
+          <span id="prog-track" class="prog-track"></span>
+        </div>
+        <span id="prog-speed" class="prog-speed"></span>
+      </div>
+      <div class="prog-track-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div id="prog-fill" class="prog-fill"></div>
+      </div>
+      <p id="prog-percent" class="prog-pct">0%</p>
+    </section>
+
+    <!-- ══ Downloaded Files ══ -->
+    <section id="files-section" class="files-card hidden">
+      <div class="files-head">
+        <h2 class="section-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>
+          Ready to Save
+        </h2>
+        <button id="dl-all-btn" class="btn btn-sm btn-outline hidden">Save All</button>
+      </div>
+      <div id="file-list" class="file-list"></div>
+    </section>
+
+    <!-- ══ History ══ -->
+    <section id="history-section" class="files-card hidden">
+      <h2 class="section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="12 8 12 12 14 14"/>
+          <path d="M3.05 11a9 9 0 1 0 .5-4.52"/>
+          <polyline points="3 3 3 8 8 8"/>
+        </svg>
+        Recent
+      </h2>
+      <div id="history-list" class="history-list"></div>
+    </section>
+
+    <!-- ══ Footer ══ -->
+    <footer class="footer">
+      <p>Powered by <strong>yt-dlp</strong> · For personal use only · WaveSnap 2025</p>
+    </footer>
+
+  </div><!-- /.app -->
+
+  <!-- Toast container -->
+  <div id="toasts" class="toasts" role="alert" aria-live="assertive"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
