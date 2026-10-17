@@ -5,3 +5,4 @@ requests>=2.31
 gunicorn>=21.2
 beautifulsoup4>=4.12.0
 spotdl>=4.2.0
+static-ffmpeg>=2.5

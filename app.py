@@ -20,6 +20,13 @@ from flask import (
 )
 import yt_dlp
 
+# Ensure static ffmpeg is in PATH for Render / Cloud / Local environments
+try:
+    import static_ffmpeg
+    static_ffmpeg.add_paths()
+except Exception as _e:
+    print(f"static_ffmpeg note: {_e}")
+
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
 # ── Storage ───────────────────────────────────────────────────────────────────
@@ -428,9 +435,17 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         ydl.download([query])
 
+                    # Locate the downloaded file (exact codec or fallback candidate)
+                    actual_file = target_file
+                    if not actual_file.exists():
+                        for f in out_dir.iterdir():
+                            if f.is_file() and f.stem == base_name and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"}:
+                                actual_file = f
+                                break
+
                     # Tag the audio with official metadata and cached cover
-                    if target_file.exists() and not _job_cancelled.get(job_id):
-                        _tag_audio(target_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url, cover_data=cover_data)
+                    if actual_file.exists() and not _job_cancelled.get(job_id):
+                        _tag_audio(actual_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url, cover_data=cover_data)
 
                     with completed_lock:
                         completed_count += 1

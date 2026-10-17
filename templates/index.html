@@ -170,7 +170,25 @@
       <div id="prog-track-bar" class="prog-track-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <div id="prog-fill" class="prog-fill"></div>
       </div>
-      <p id="prog-percent" class="prog-pct">0%</p>
+      <div class="prog-pct-row">
+        <p id="prog-percent" class="prog-pct">0%</p>
+      </div>
+
+      <!-- Two-Phase Clear Explanation -->
+      <div class="prog-phase-guide">
+        <div class="phase-step active" id="phase-step-1">
+          <div class="phase-pill">Step 1: Cloud Processing</div>
+          <div class="phase-text">Fetching & converting audio to chosen quality (320kbps MP3)</div>
+        </div>
+        <div class="phase-divider">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </div>
+        <div class="phase-step" id="phase-step-2">
+          <div class="phase-pill phase-pill-device">Step 2: Save to Device</div>
+          <div class="phase-text">Browser will save file directly into your PC's Downloads folder at 100%</div>
+        </div>
+      </div>
+      <p class="prog-hint">⚡ Processing on server… <strong>Your computer will receive the file as soon as this reaches 100%.</strong> Please keep this tab open.</p>
     </section>
 
     <!-- ══ Downloaded Files ══ -->

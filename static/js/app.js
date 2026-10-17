@@ -335,8 +335,8 @@ function listenSSE(jobId, outDir) {
     if (msg.type === "track_done") {
       state.tracksDone++;
       progLabel.textContent = state.tracksTotal > 1
-        ? `Downloading ${state.tracksDone} / ${state.tracksTotal} tracks…`
-        : "Processing…";
+        ? `Converting track ${state.tracksDone} of ${state.tracksTotal} (320kbps MP3)…`
+        : "Encoding audio to 320kbps MP3…";
       setProgress(100, "");
     }
 
@@ -350,7 +350,7 @@ function listenSSE(jobId, outDir) {
       progSection.classList.add("hidden");
       dlBtn.disabled = false;
       loadFiles(outDir);
-      toast("Download complete! 🎵", "success");
+      toast("Audio conversion complete! Sending to your computer… 🎵", "success");
     }
   };
 
@@ -374,7 +374,7 @@ async function loadFiles(outDir) {
     const files = data.files || [];
 
     if (!files.length) {
-      toast("No audio files found — check ffmpeg is installed", "error");
+      toast("No audio files found — check that the link is valid", "error");
       return;
     }
 
@@ -388,28 +388,39 @@ async function loadFiles(outDir) {
     if (saveHero) {
       if (files.length === 1) {
         const singleExt = (files[0].name.split('.').pop() || "mp3").toUpperCase();
-        if (saveHeroBadge) saveHeroBadge.textContent = "Song Ready";
-        if (saveHeroHeadline) saveHeroHeadline.textContent = `Saved to your device (${singleExt})`;
-        if (saveHeroSub) saveHeroSub.textContent = `Your song "${files[0].name}" has been prepared. If your download hasn't started automatically, tap below.`;
-        if (heroDlText) heroDlText.textContent = `Save Song to Device (${singleExt} · ${fmtBytes(files[0].size)})`;
-        if (heroDlBtn) heroDlBtn.onclick = () => triggerSave(files[0].rel, files[0].name);
+        if (saveHeroBadge) saveHeroBadge.textContent = "Conversion Complete";
+        if (saveHeroHeadline) saveHeroHeadline.textContent = `Save "${files[0].name}" to Your Computer`;
+        if (saveHeroSub) saveHeroSub.textContent = `Your high-fidelity audio is ready. If your browser didn't automatically prompt you, click the glowing button below to save directly into your Downloads folder.`;
+        if (heroDlText) heroDlText.textContent = `Save to My Computer (${singleExt} · ${fmtBytes(files[0].size)})`;
+        if (heroDlBtn) heroDlBtn.onclick = () => {
+          const dlUrl = `/api/download-file?path=${encodeURIComponent(files[0].rel)}&name=${encodeURIComponent(files[0].name || "")}`;
+          window.location.assign(dlUrl);
+        };
 
         // Auto-trigger browser download to device for single song
         triggerSave(files[0].rel, files[0].name);
-        toast(`Saving "${files[0].name}" to your Downloads folder…`, "success", 4000);
+        toast(`Sending "${files[0].name}" to your Downloads folder…`, "success", 4000);
       } else {
         if (saveHeroBadge) saveHeroBadge.textContent = `Playlist Ready (${files.length} Songs)`;
-        if (saveHeroHeadline) saveHeroHeadline.textContent = `Saved to your Downloads folder (.ZIP)`;
-        if (saveHeroSub) saveHeroSub.textContent = `All ${files.length} songs and album art are packaged in "${zipTitle}.zip". If your download hasn't started, tap below.`;
-        if (heroDlText) heroDlText.textContent = `Save All to Device (.ZIP${totalSizeStr})`;
-        if (heroDlBtn) heroDlBtn.onclick = () => triggerZipDownload(data.folder, zipTitle);
+        if (saveHeroHeadline) saveHeroHeadline.textContent = `Save "${zipTitle}.zip" to Your Computer`;
+        if (saveHeroSub) saveHeroSub.textContent = `All ${files.length} songs and album art are packaged in a ZIP file. If download hasn't started, click the button below.`;
+        if (heroDlText) heroDlText.textContent = `Save All to My Computer (.ZIP${totalSizeStr})`;
+        if (heroDlBtn) heroDlBtn.onclick = () => {
+          const zipUrl = `/api/download-zip?folder=${encodeURIComponent(data.folder)}&title=${encodeURIComponent(zipTitle)}`;
+          window.location.assign(zipUrl);
+        };
 
         // Auto-trigger browser download to device for playlist ZIP
         if (data.folder) {
           triggerZipDownload(data.folder, zipTitle);
-          toast(`Saving "${zipTitle}.zip" to your Downloads folder…`, "success", 5000);
+          toast(`Sending "${zipTitle}.zip" to your Downloads folder…`, "success", 5000);
         }
       }
+
+      // Smooth scroll so the user immediately sees the download card
+      setTimeout(() => {
+        filesSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
     }
 
     if (filesTitle) {
@@ -508,26 +519,44 @@ function triggerZipDownload(folder, title) {
   const url = `/api/download-zip?folder=${encodeURIComponent(folder)}&title=${encodeURIComponent(zipTitle)}`;
   triggerBrowserDownload(url, `${zipTitle}.zip`);
 
-  // Automatically delete temporary files from Render server 60 seconds after download starts
+  // Automatically delete temporary files from Render server 2 minutes after download starts
   setTimeout(() => {
     fetch("/api/cleanup-job", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ folder }),
     }).catch(() => {});
-  }, 60000);
+  }, 120000);
 }
 
 function triggerBrowserDownload(url, filename) {
-  const a = document.createElement("a");
-  a.href = url;
-  if (filename) a.setAttribute("download", filename);
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => {
-    if (a.parentNode) a.parentNode.removeChild(a);
-  }, 2000);
+  // Method 1: Invisible iframe — reliable background download trigger for Content-Disposition: attachment
+  try {
+    const ifr = document.createElement("iframe");
+    ifr.style.display = "none";
+    ifr.src = url;
+    document.body.appendChild(ifr);
+    setTimeout(() => {
+      if (ifr.parentNode) ifr.parentNode.removeChild(ifr);
+    }, 60000);
+  } catch (e) {
+    console.warn("Iframe download trigger error:", e);
+  }
+
+  // Method 2: Anchor click fallback
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    if (filename) a.setAttribute("download", filename);
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      if (a.parentNode) a.parentNode.removeChild(a);
+    }, 2000);
+  } catch (e) {
+    console.warn("Anchor fallback error:", e);
+  }
 }
 
 // ── History ──────────────────────────────────────────────────
