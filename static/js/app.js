@@ -459,6 +459,15 @@ function triggerZipDownload(folder, title) {
   const zipTitle = title || folder;
   const url = `/api/download-zip?folder=${encodeURIComponent(folder)}&title=${encodeURIComponent(zipTitle)}`;
   triggerBrowserDownload(url, `${zipTitle}.zip`);
+
+  // Automatically delete temporary files from Render server 60 seconds after download starts
+  setTimeout(() => {
+    fetch("/api/cleanup-job", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folder }),
+    }).catch(() => {});
+  }, 60000);
 }
 
 function triggerBrowserDownload(url, filename) {

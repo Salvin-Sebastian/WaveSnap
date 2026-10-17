@@ -13,9 +13,10 @@ from pathlib import Path
 
 import requests as http_requests
 from bs4 import BeautifulSoup
+import time
 from flask import (
     Flask, request, jsonify, Response,
-    render_template, send_from_directory
+    render_template, send_from_directory, after_this_request
 )
 import yt_dlp
 
@@ -34,6 +35,29 @@ BASE_DIR.mkdir(parents=True, exist_ok=True)
 # Per-job SSE queues
 _job_queues: dict[str, queue.Queue] = {}
 _job_lock = threading.Lock()
+
+
+def _cleanup_old_files():
+    """Periodically purges files older than 10 minutes so Render server disk stays clean."""
+    while True:
+        try:
+            time.sleep(180)  # check every 3 minutes
+            now = time.time()
+            if BASE_DIR.exists():
+                for p in BASE_DIR.iterdir():
+                    try:
+                        # Clean up folders/files older than 10 mins (600s)
+                        if (now - p.stat().st_mtime) > 600:
+                            if p.is_dir():
+                                shutil.rmtree(p, ignore_errors=True)
+                            else:
+                                p.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+threading.Thread(target=_cleanup_old_files, daemon=True).start()
 
 
 # ── URL Detection & Helpers ───────────────────────────────────────────────────
@@ -702,12 +726,36 @@ def download_zip():
             if f.is_file() and f.suffix.lower() in valid_exts:
                 zf.write(f, arcname=f.name)
 
+    @after_this_request
+    def remove_zip(response):
+        try:
+            if zip_path.exists():
+                zip_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return response
+
     return send_from_directory(
         str(BASE_DIR.resolve()),
         zip_path.name,
         as_attachment=True,
         download_name=zip_filename
     )
+
+
+@app.route("/api/cleanup-job", methods=["POST"])
+def cleanup_job():
+    data = request.get_json(force=True, silent=True) or {}
+    folder = data.get("folder", "").strip()
+    if folder and ".." not in folder:
+        target_dir = (BASE_DIR / folder).resolve()
+        try:
+            target_dir.relative_to(BASE_DIR.resolve())
+            if target_dir != BASE_DIR.resolve() and target_dir.exists():
+                shutil.rmtree(target_dir, ignore_errors=True)
+        except Exception:
+            pass
+    return jsonify({"status": "cleaned"})
 
 
 if __name__ == "__main__":
