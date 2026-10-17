@@ -43,6 +43,7 @@ const progBar     = $("prog-track-bar");
 const filesSection = $("files-section");
 const fileList    = $("file-list");
 const dlAllBtn    = $("dl-all-btn");
+const dlZipBtn    = $("dl-zip-btn");
 
 const histSect    = $("history-section");
 const histList    = $("history-list");
@@ -134,7 +135,7 @@ function showInfo(info) {
 
   // Badge
   infoTypeBdg.textContent = info.is_playlist
-    ? `PLAYLIST · ${info.count} tracks`
+    ? (info.count ? `PLAYLIST · ${info.count} tracks` : "PLAYLIST")
     : (info.duration ? fmtDuration(info.duration) : "AUDIO");
 
   infoTitle.textContent = info.title;
@@ -142,7 +143,7 @@ function showInfo(info) {
 
   // Tags
   infoCountTag.textContent = info.is_playlist
-    ? `${info.count} songs`
+    ? (info.count ? `${info.count} songs` : "Playlist")
     : "1 track";
   infoCountTag.style.display = "";
 
@@ -157,7 +158,7 @@ function showInfo(info) {
 
   // Download button label
   dlLabel.textContent = info.is_playlist
-    ? `Download All ${info.count} Songs`
+    ? (info.count ? `Download All ${info.count} Songs` : "Download Playlist")
     : "Download Song";
 
   infoPanel.classList.remove("hidden");
@@ -190,6 +191,9 @@ async function startDownload() {
         url,
         title: state.currentInfo.title,
         is_playlist: state.currentInfo.is_playlist,
+        source: state.currentInfo.source || "ytdlp",
+        tracks: state.currentInfo.tracks || [],
+        thumbnail: state.currentInfo.thumbnail || "",
       }),
     });
     const data = await res.json();
@@ -310,7 +314,21 @@ async function loadFiles(outDir) {
       btn.addEventListener("click", () => triggerSave(btn.dataset.rel, btn.dataset.name));
     });
 
-    // Download All
+    // Download as ZIP for playlists/folders
+    if (data.folder && files.length > 0) {
+      if (dlZipBtn) {
+        dlZipBtn.classList.remove("hidden");
+        dlZipBtn.textContent = `Download as ZIP (${files.length} songs)`;
+        dlZipBtn.onclick = () => {
+          const zipTitle = state.currentInfo ? (state.currentInfo.title || data.folder) : data.folder;
+          window.location.href = `/api/download-zip?folder=${encodeURIComponent(data.folder)}&title=${encodeURIComponent(zipTitle)}`;
+        };
+      }
+    } else {
+      if (dlZipBtn) dlZipBtn.classList.add("hidden");
+    }
+
+    // Save All (individual files)
     if (files.length > 1) {
       dlAllBtn.classList.remove("hidden");
       dlAllBtn.onclick = () => {

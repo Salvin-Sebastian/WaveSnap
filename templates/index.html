@@ -98,6 +98,7 @@
         <div class="platforms">
           <span class="plat-label">Supports:</span>
           <div class="plat-chips">
+            <span class="chip">Spotify</span>
             <span class="chip">YouTube</span>
             <span class="chip">YT Music</span>
             <span class="chip">SoundCloud</span>
@@ -119,8 +120,8 @@
           <p id="info-channel" class="info-channel"></p>
           <div class="info-tags">
             <span id="info-count-tag" class="tag tag-blue"></span>
-            <span class="tag tag-green">MP3 · Best Quality</span>
-            <span class="tag tag-purple">Album Art + Metadata</span>
+            <span class="tag tag-green">MP3 · 320kbps</span>
+            <span class="tag tag-purple">Album Art + ID3 Tags</span>
           </div>
           <div id="info-folder-row" class="folder-row hidden">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -163,7 +164,10 @@
           </svg>
           Ready to Save
         </h2>
-        <button id="dl-all-btn" class="btn btn-sm btn-outline hidden">Save All</button>
+        <div class="files-actions">
+          <button id="dl-zip-btn" class="btn btn-sm btn-primary hidden">Download as ZIP (.zip)</button>
+          <button id="dl-all-btn" class="btn btn-sm btn-outline hidden">Save All</button>
+        </div>
       </div>
       <div id="file-list" class="file-list"></div>
     </section>
