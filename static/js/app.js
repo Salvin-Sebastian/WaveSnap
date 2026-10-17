@@ -21,6 +21,17 @@ const fetchBtn    = $("fetch-btn");
 const fetchLabel  = $("fetch-label");
 const pasteBtn    = $("paste-btn");
 
+const liveDetector   = $("live-detector");
+const detectorBadge  = $("detector-badge");
+const detectorTitle  = $("detector-title");
+const detectorEngine = $("detector-engine");
+
+const swCard   = $("software-card");
+const swIcon   = $("sw-icon");
+const swName   = $("sw-name");
+const swType   = $("sw-type");
+const swEngine = $("sw-engine");
+
 const infoPanel   = $("info-panel");
 const infoThumb   = $("info-thumb");
 const infoTypeBdg = $("info-type-badge");
@@ -96,17 +107,179 @@ function esc(s) {
     .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
-// ── Paste ────────────────────────────────────────────────────
+// ── Paste & Input Detection ──────────────────────────────────
 pasteBtn.addEventListener("click", async () => {
   try {
     const text = await navigator.clipboard.readText();
     urlInput.value = text.trim();
     urlInput.focus();
+    onUrlInput();
     toast("Pasted from clipboard", "success", 2000);
   } catch {
     toast("Tap the input and long-press to paste", "info");
   }
 });
+
+function detectSoftware(raw) {
+  const u = (raw || "").trim().toLowerCase();
+  if (!u) return null;
+
+  if (u.includes("spotify.com") || u.includes("spoti.fi") || u.includes("spotify.link")) {
+    const isPl = u.includes("/playlist/") || u.includes("/album/") || u.includes("/artist/");
+    return {
+      id: "spotify",
+      name: "Spotify",
+      icon: "🟢",
+      color: "#1DB954",
+      type: isPl ? "Playlist / Album" : "Track",
+      engine: "Spotify Dedicated Downloader",
+      desc: "Scrapes official Spotify tracklist & cover art; downloads 320kbps MP3s."
+    };
+  }
+  if (u.includes("music.youtube.com")) {
+    const isPl = u.includes("list=");
+    return {
+      id: "ytmusic",
+      name: "YouTube Music",
+      icon: "⭕",
+      color: "#FF0000",
+      type: isPl ? "Playlist / Album" : "Song",
+      engine: "YouTube Music Dedicated Engine",
+      desc: "Extracts highest bitrate YouTube Music stream with rich metadata."
+    };
+  }
+  if (u.includes("youtube.com") || u.includes("youtu.be")) {
+    const isPl = u.includes("list=");
+    const isShort = u.includes("/shorts/");
+    return {
+      id: "youtube",
+      name: "YouTube",
+      icon: "🔴",
+      color: "#FF0000",
+      type: isPl ? "Playlist" : (isShort ? "Shorts" : "Video"),
+      engine: "YouTube High-Fidelity Engine",
+      desc: "Extracts direct YouTube audio in chosen bitrate with thumbnail embed."
+    };
+  }
+  if (u.includes("music.apple.com") || u.includes("itunes.apple.com")) {
+    const isPl = u.includes("/playlist/") || u.includes("/album/");
+    return {
+      id: "applemusic",
+      name: "Apple Music",
+      icon: "🍎",
+      color: "#FA2D48",
+      type: isPl ? "Playlist / Album" : "Song",
+      engine: "Apple Music Resolver Engine",
+      desc: "Parses Apple Music tracklist and album art; fetches matching 320kbps audio."
+    };
+  }
+  if (u.includes("soundcloud.com")) {
+    const isPl = u.includes("/sets/");
+    return {
+      id: "soundcloud",
+      name: "SoundCloud",
+      icon: "🟠",
+      color: "#FF5500",
+      type: isPl ? "Set / Playlist" : "Track",
+      engine: "SoundCloud Stream Engine",
+      desc: "Extracts high-quality SoundCloud streams with original artwork."
+    };
+  }
+  if (u.includes("bandcamp.com")) {
+    const isPl = u.includes("/album/");
+    return {
+      id: "bandcamp",
+      name: "Bandcamp",
+      icon: "🔵",
+      color: "#629AA9",
+      type: isPl ? "Album" : "Track",
+      engine: "Bandcamp Lossless Engine",
+      desc: "Direct stream extraction from Bandcamp."
+    };
+  }
+  if (u.includes("tiktok.com")) {
+    return {
+      id: "tiktok",
+      name: "TikTok",
+      icon: "🎵",
+      color: "#00F2FE",
+      type: "Video Audio",
+      engine: "TikTok Audio Extractor",
+      desc: "Extracts original audio track from TikTok video."
+    };
+  }
+  if (u.includes("instagram.com")) {
+    return {
+      id: "instagram",
+      name: "Instagram",
+      icon: "📸",
+      color: "#E1306C",
+      type: "Reel / Video Audio",
+      engine: "Instagram Reel Audio Extractor",
+      desc: "Extracts audio track from Instagram reel or post."
+    };
+  }
+  if (u.startsWith("http://") || u.startsWith("https://")) {
+    return {
+      id: "generic",
+      name: "Web Media",
+      icon: "🌐",
+      color: "#8B5CF6",
+      type: "Media Link",
+      engine: "Universal Audio Engine",
+      desc: "Supports 1000+ streaming sites via yt-dlp extractor."
+    };
+  }
+  return {
+    id: "search",
+    name: "Search Query",
+    icon: "🔍",
+    color: "#3B82F6",
+    type: "Song Search",
+    engine: "Direct Search Engine",
+    desc: "Searches top matching high-quality audio track."
+  };
+}
+
+function onUrlInput() {
+  const val = urlInput.value.trim();
+  if (!val) {
+    if (liveDetector) liveDetector.classList.add("hidden");
+    document.querySelectorAll(".chip").forEach(c => c.classList.remove("chip-active"));
+    return;
+  }
+
+  const p = detectSoftware(val);
+  if (!p) {
+    if (liveDetector) liveDetector.classList.add("hidden");
+    document.querySelectorAll(".chip").forEach(c => c.classList.remove("chip-active"));
+    return;
+  }
+
+  if (liveDetector) {
+    if (detectorBadge) {
+      detectorBadge.textContent = `${p.icon} ${p.name}`;
+      detectorBadge.style.background = `${p.color}22`;
+      detectorBadge.style.borderColor = `${p.color}55`;
+      detectorBadge.style.color = p.color;
+    }
+    if (detectorTitle) detectorTitle.textContent = `${p.name} ${p.type}`;
+    if (detectorEngine) detectorEngine.textContent = `Using ${p.engine}`;
+    liveDetector.classList.remove("hidden");
+  }
+
+  // Highlight corresponding chip
+  document.querySelectorAll(".chip").forEach(c => {
+    if (c.dataset.platform === p.id) {
+      c.classList.add("chip-active");
+    } else {
+      c.classList.remove("chip-active");
+    }
+  });
+}
+
+urlInput.addEventListener("input", onUrlInput);
+urlInput.addEventListener("paste", () => setTimeout(onUrlInput, 50));
 
 // ── Fetch info ───────────────────────────────────────────────
 fetchBtn.addEventListener("click", fetchInfo);
@@ -191,6 +364,22 @@ function showInfo(info) {
 
   infoTitle.textContent = info.title;
   infoCh.textContent    = info.channel || "";
+
+  // Software / Platform Engine Display
+  if (info.platform && swCard) {
+    const p = info.platform;
+    if (swIcon) swIcon.textContent = p.icon || "🎵";
+    if (swName) {
+      swName.textContent = p.name || "Platform";
+      swName.style.color = p.badge_color || "#fff";
+    }
+    if (swType) swType.textContent = p.type_label || (info.is_playlist ? "Playlist" : "Track");
+    if (swEngine) swEngine.textContent = p.engine || p.software || "Dedicated Downloader";
+    swCard.style.borderColor = p.badge_color ? `${p.badge_color}55` : "rgba(255,255,255,0.1)";
+    swCard.classList.remove("hidden");
+  } else if (swCard) {
+    swCard.classList.add("hidden");
+  }
 
   // Tags
   infoCountTag.textContent = info.is_playlist
@@ -282,7 +471,8 @@ async function startDownload() {
         url,
         title: state.currentInfo.title,
         is_playlist: state.currentInfo.is_playlist,
-        source: state.currentInfo.source || "ytdlp",
+        source: state.currentInfo.source || (state.currentInfo.platform ? state.currentInfo.platform.platform_id : "generic"),
+        platform_id: state.currentInfo.platform ? state.currentInfo.platform.platform_id : null,
         tracks: state.currentInfo.tracks || [],
         thumbnail: state.currentInfo.thumbnail || "",
         quality: qualitySelect ? qualitySelect.value : "mp3_320",

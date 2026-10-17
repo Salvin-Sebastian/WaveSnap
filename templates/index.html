@@ -94,16 +94,27 @@
           </button>
         </div>
 
+        <!-- Live Software Link Detector Bar -->
+        <div id="live-detector" class="live-detector hidden" aria-live="polite">
+          <div class="detector-left">
+            <span id="detector-badge" class="detector-badge">🟢 Spotify</span>
+            <span id="detector-title" class="detector-title">Spotify Playlist</span>
+            <span class="detector-sep">•</span>
+            <span id="detector-engine" class="detector-engine">Spotify Dedicated Downloader</span>
+          </div>
+          <span class="detector-hint">Press Enter or Check Link ↵</span>
+        </div>
+
         <!-- Supported platforms row -->
         <div class="platforms">
           <span class="plat-label">Supports:</span>
           <div class="plat-chips">
-            <span class="chip">Spotify</span>
-            <span class="chip">YouTube</span>
-            <span class="chip">YT Music</span>
-            <span class="chip">SoundCloud</span>
-            <span class="chip">Bandcamp</span>
-            <span class="chip">Vimeo</span>
+            <span class="chip" data-platform="spotify">Spotify</span>
+            <span class="chip" data-platform="youtube">YouTube</span>
+            <span class="chip" data-platform="ytmusic">YT Music</span>
+            <span class="chip" data-platform="soundcloud">SoundCloud</span>
+            <span class="chip" data-platform="applemusic">Apple Music</span>
+            <span class="chip" data-platform="bandcamp">Bandcamp</span>
             <span class="chip chip-more">+1000 more</span>
           </div>
         </div>
@@ -116,6 +127,19 @@
           <div id="info-type-badge" class="art-badge"></div>
         </div>
         <div class="info-body">
+          <!-- Software Engine Card -->
+          <div id="software-card" class="software-card">
+            <div class="sw-badge-wrap">
+              <span id="sw-icon" class="sw-icon">🟢</span>
+              <span id="sw-name" class="sw-name">Spotify</span>
+              <span class="sw-dot">•</span>
+              <span id="sw-type" class="sw-type">Playlist</span>
+            </div>
+            <div class="sw-engine-row">
+              <span class="sw-engine-label">Software Engine:</span>
+              <span id="sw-engine" class="sw-engine">Spotify Dedicated Downloader</span>
+            </div>
+          </div>
           <p id="info-title"   class="info-title"></p>
           <p id="info-channel" class="info-channel"></p>
           <div class="info-tags">

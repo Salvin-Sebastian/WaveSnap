@@ -115,6 +115,189 @@ def spotify_type(url: str) -> str:
     return t
 
 
+def analyze_software_link(raw_input: str) -> dict:
+    """
+    Analyzes any input link or query, identifies the originating music software/platform,
+    and returns its dedicated execution engine metadata.
+    """
+    url = resolve_url(raw_input)
+    u = url.lower()
+
+    # 1. Spotify
+    if is_spotify(url):
+        stype, sid = get_spotify_id_and_type(url)
+        is_pl = stype in ("playlist", "album", "artist")
+        type_label = "Playlist" if stype == "playlist" else ("Album" if stype == "album" else ("Artist Discography" if stype == "artist" else "Track"))
+        return {
+            "platform_id": "spotify",
+            "name": "Spotify",
+            "software": "Spotify Music Downloader",
+            "engine": "Spotify Dedicated Engine",
+            "icon": "🟢",
+            "badge_color": "#1DB954",
+            "type": stype,
+            "type_label": type_label,
+            "is_playlist": is_pl,
+            "url": url,
+            "id": sid,
+            "description": f"Spotify {type_label} detected. Executes dedicated Spotify tracklist extractor & batch MP3 downloader."
+        }
+
+    # 2. YouTube Music
+    if "music.youtube.com" in u:
+        is_pl = "list=" in u or "/playlist" in u
+        type_label = "Playlist / Album" if is_pl else "Song"
+        return {
+            "platform_id": "ytmusic",
+            "name": "YouTube Music",
+            "software": "YouTube Music Downloader",
+            "engine": "YouTube Music Dedicated Engine",
+            "icon": "⭕",
+            "badge_color": "#FF0000",
+            "type": "playlist" if is_pl else "track",
+            "type_label": type_label,
+            "is_playlist": is_pl,
+            "url": url,
+            "description": f"YouTube Music {type_label} detected. Executes YouTube Music high-fidelity audio pipeline."
+        }
+
+    # 3. YouTube
+    if any(k in u for k in ("youtube.com", "youtu.be")):
+        is_pl = "list=" in u or "/playlist" in u
+        is_short = "/shorts/" in u
+        type_label = "Playlist" if is_pl else ("Shorts" if is_short else "Video")
+        return {
+            "platform_id": "youtube",
+            "name": "YouTube",
+            "software": "YouTube Audio Downloader",
+            "engine": "YouTube High-Fidelity Engine",
+            "icon": "🔴",
+            "badge_color": "#FF0000",
+            "type": "playlist" if is_pl else ("short" if is_short else "video"),
+            "type_label": type_label,
+            "is_playlist": is_pl,
+            "url": url,
+            "description": f"YouTube {type_label} detected. Executes YouTube audio extraction & metadata tagging."
+        }
+
+    # 4. Apple Music
+    if any(k in u for k in ("music.apple.com", "itunes.apple.com")):
+        is_pl = "/playlist/" in u or "/album/" in u
+        type_label = "Playlist" if "/playlist/" in u else ("Album" if "/album/" in u else "Song")
+        return {
+            "platform_id": "applemusic",
+            "name": "Apple Music",
+            "software": "Apple Music Downloader",
+            "engine": "Apple Music Resolver Engine",
+            "icon": "🍎",
+            "badge_color": "#FA2D48",
+            "type": "playlist" if "/playlist/" in u else ("album" if "/album/" in u else "track"),
+            "type_label": type_label,
+            "is_playlist": is_pl,
+            "url": url,
+            "description": f"Apple Music {type_label} detected. Executes Apple Music catalog resolver & batch audio downloader."
+        }
+
+    # 5. SoundCloud
+    if any(k in u for k in ("soundcloud.com", "on.soundcloud.com")):
+        is_pl = "/sets/" in u
+        type_label = "Set / Playlist" if is_pl else "Track"
+        return {
+            "platform_id": "soundcloud",
+            "name": "SoundCloud",
+            "software": "SoundCloud Downloader",
+            "engine": "SoundCloud Stream Engine",
+            "icon": "🟠",
+            "badge_color": "#FF5500",
+            "type": "set" if is_pl else "track",
+            "type_label": type_label,
+            "is_playlist": is_pl,
+            "url": url,
+            "description": f"SoundCloud {type_label} detected. Executes direct SoundCloud high-bitrate stream extraction."
+        }
+
+    # 6. Bandcamp
+    if "bandcamp.com" in u:
+        is_pl = "/album/" in u
+        type_label = "Album" if is_pl else "Track"
+        return {
+            "platform_id": "bandcamp",
+            "name": "Bandcamp",
+            "software": "Bandcamp Downloader",
+            "engine": "Bandcamp Lossless Engine",
+            "icon": "🔵",
+            "badge_color": "#629AA9",
+            "type": "album" if is_pl else "track",
+            "type_label": type_label,
+            "is_playlist": is_pl,
+            "url": url,
+            "description": f"Bandcamp {type_label} detected. Executes Bandcamp lossless/high-bitrate extraction."
+        }
+
+    # 7. TikTok
+    if "tiktok.com" in u:
+        return {
+            "platform_id": "tiktok",
+            "name": "TikTok",
+            "software": "TikTok Audio Downloader",
+            "engine": "TikTok Audio Extractor",
+            "icon": "🎵",
+            "badge_color": "#00F2FE",
+            "type": "video",
+            "type_label": "TikTok Audio",
+            "is_playlist": False,
+            "url": url,
+            "description": "TikTok link detected. Executes TikTok audio track extractor."
+        }
+
+    # 8. Instagram
+    if "instagram.com" in u:
+        return {
+            "platform_id": "instagram",
+            "name": "Instagram",
+            "software": "Instagram Audio Downloader",
+            "engine": "Instagram Reel Extractor",
+            "icon": "📸",
+            "badge_color": "#E1306C",
+            "type": "video",
+            "type_label": "Instagram Audio",
+            "is_playlist": False,
+            "url": url,
+            "description": "Instagram link detected. Executes Instagram reel audio extractor."
+        }
+
+    # 9. Generic Web URL vs Search Query
+    is_http = u.startswith("http://") or u.startswith("https://")
+    if is_http:
+        return {
+            "platform_id": "generic",
+            "name": "Web Media",
+            "software": "Universal Media Downloader",
+            "engine": "Universal Audio Extractor",
+            "icon": "🌐",
+            "badge_color": "#8B5CF6",
+            "type": "stream",
+            "type_label": "Web Audio",
+            "is_playlist": False,
+            "url": url,
+            "description": "Web media link detected. Executes universal yt-dlp audio extractor."
+        }
+    else:
+        return {
+            "platform_id": "search",
+            "name": "Direct Search",
+            "software": "Audio Search Engine",
+            "engine": "Direct Search & Match Engine",
+            "icon": "🔍",
+            "badge_color": "#3B82F6",
+            "type": "query",
+            "type_label": "Song Search",
+            "is_playlist": False,
+            "url": url,
+            "description": "Search query detected. Executes direct audio search and downloads the top result."
+        }
+
+
 def sanitize_folder(name: str) -> str:
     name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name)
     return name.strip(". ") or "Unknown"
@@ -333,26 +516,15 @@ def _spotify_info(url: str) -> dict:
 
 # ── Spotify Downloader ────────────────────────────────────────────────────────
 
-def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tracks: list = None, cover_url: str = "", codec: str = "mp3", quality: str = "320"):
+# ── Batch Tracklist Downloader (Spotify, Apple Music, etc.) ───────────────────
+
+def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", tracks: list = None, cover_url: str = "", codec: str = "mp3", quality: str = "320", default_source: str = "Audio"):
     q = _job_queues[job_id]
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
         has_ffmpeg = bool(shutil.which("ffmpeg"))
 
-        # If tracks were not passed from frontend, scrape them now
-        if not tracks:
-            try:
-                info = _spotify_info(url)
-                tracks = info.get("tracks", [])
-                if not cover_url:
-                    cover_url = info.get("thumbnail", "")
-                if not title:
-                    title = info.get("title", "")
-            except Exception as e:
-                print(f"Failed to fetch Spotify tracks for download: {e}")
-                tracks = []
-
-        # Always save the high-res cover image file in the directory and cache bytes
+        # Save cover art if provided
         cover_data = None
         if cover_url:
             cover_path = out_dir / "cover.jpg"
@@ -370,7 +542,6 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                 except Exception:
                     pass
 
-        # If we have the track list, download each track at chosen quality in parallel!
         if tracks:
             total_tracks = len(tracks)
             completed_lock = threading.Lock()
@@ -380,7 +551,7 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                 "type": "progress",
                 "percent": 0,
                 "speed": "",
-                "filename": f"Starting download for {total_tracks} tracks…"
+                "filename": f"Starting {default_source} download for {total_tracks} tracks…"
             })
 
             def download_single_track(idx: int, tr: dict):
@@ -396,7 +567,6 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                 sanitized_title = sanitize_folder(t_title)
                 base_name = f"{sanitized_artist} - {sanitized_title}"
 
-                # Target file path
                 target_file = out_dir / f"{base_name}.{codec}"
                 if target_file.exists() and target_file.stat().st_size > 50000:
                     with completed_lock:
@@ -435,7 +605,7 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         ydl.download([query])
 
-                    # Locate the downloaded file (exact codec or fallback candidate)
+                    # Locate downloaded audio file even if extension was changed by converter
                     actual_file = target_file
                     if not actual_file.exists():
                         for f in out_dir.iterdir():
@@ -443,7 +613,6 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                                 actual_file = f
                                 break
 
-                    # Tag the audio with official metadata and cached cover
                     if actual_file.exists() and not _job_cancelled.get(job_id):
                         _tag_audio(actual_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url, cover_data=cover_data)
 
@@ -459,7 +628,6 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                         pct = round((completed_count / total_tracks) * 100, 1)
                         q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"Skipped: {base_name}"})
 
-            # Download with 3 concurrent workers for high throughput without rate limits
             workers = min(3, max(1, total_tracks))
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = []
@@ -472,33 +640,6 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                         for f in futures:
                             f.cancel()
                         break
-
-        else:
-            # Fallback to spotdl CLI if installed
-            spotdl_bin = shutil.which("spotdl")
-            if not spotdl_bin:
-                # Try python -m spotdl
-                spotdl_bin = sys.executable
-
-            cmd = [
-                spotdl_bin,
-                "download",
-                url,
-                "--output", str(out_dir / "{title} - {artists}.{output-ext}"),
-                "--format", "mp3",
-                "--bitrate", "256k",
-                "--threads", "4",
-            ]
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-            for raw in proc.stdout:
-                if _job_cancelled.get(job_id):
-                    proc.kill()
-                    break
-                line = raw.strip()
-                if line:
-                    q.put({"type": "progress", "percent": 50, "speed": "", "filename": line})
-            proc.wait()
-
     except Exception as exc:
         if not _job_cancelled.get(job_id):
             q.put({"type": "error", "message": str(exc)})
@@ -510,11 +651,278 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
             q.put({"type": "done", "out_dir": str(out_dir)})
 
 
+# ── Specific Software Download Execution Handlers ─────────────────────────────
+
+def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tracks: list = None, cover_url: str = "", codec: str = "mp3", quality: str = "320"):
+    """Dedicated Spotify execution handler: downloads tracklist with official Spotify metadata and artwork."""
+    if not tracks:
+        try:
+            info = _spotify_info(url)
+            tracks = info.get("tracks", [])
+            if not cover_url:
+                cover_url = info.get("thumbnail", "")
+            if not title:
+                title = info.get("title", "")
+        except Exception as e:
+            print(f"Failed to fetch Spotify tracks for download: {e}")
+            tracks = []
+    _download_tracklist_batch(job_id, out_dir, title=title, tracks=tracks, cover_url=cover_url, codec=codec, quality=quality, default_source="Spotify")
+
+
+def _download_applemusic(job_id: str, url: str, out_dir: Path, title: str = "", tracks: list = None, cover_url: str = "", codec: str = "mp3", quality: str = "320"):
+    """Dedicated Apple Music execution handler: resolves Apple catalog metadata and downloads high-fidelity audio."""
+    if not tracks:
+        info = _applemusic_info(url)
+        tracks = info.get("tracks", [])
+        if not cover_url:
+            cover_url = info.get("thumbnail", "")
+        if not title:
+            title = info.get("title", "")
+    _download_tracklist_batch(job_id, out_dir, title=title, tracks=tracks, cover_url=cover_url, codec=codec, quality=quality, default_source="Apple Music")
+
+
+def _download_youtube(job_id: str, url: str, out_dir: Path, title: str = "", is_playlist: bool = False, cover_url: str = "", codec: str = "mp3", quality: str = "320"):
+    """Dedicated YouTube & YouTube Music execution handler: uses optimized stream extraction with live progress."""
+    q = _job_queues[job_id]
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ydl_opts = _ydl_opts(job_id, out_dir, codec=codec, quality=quality)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except Exception as exc:
+        if not _job_cancelled.get(job_id):
+            q.put({"type": "error", "message": str(exc)})
+    finally:
+        if _job_cancelled.get(job_id):
+            shutil.rmtree(out_dir, ignore_errors=True)
+            q.put({"type": "cancelled", "message": "Download stopped by user"})
+        else:
+            q.put({"type": "done", "out_dir": str(out_dir)})
+
+
+def _download_soundcloud(job_id: str, url: str, out_dir: Path, title: str = "", is_playlist: bool = False, cover_url: str = "", codec: str = "mp3", quality: str = "320"):
+    """Dedicated SoundCloud execution handler: extracts high-bitrate audio and original artwork."""
+    q = _job_queues[job_id]
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ydl_opts = _ydl_opts(job_id, out_dir, codec=codec, quality=quality)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except Exception as exc:
+        if not _job_cancelled.get(job_id):
+            q.put({"type": "error", "message": str(exc)})
+    finally:
+        if _job_cancelled.get(job_id):
+            shutil.rmtree(out_dir, ignore_errors=True)
+            q.put({"type": "cancelled", "message": "Download stopped by user"})
+        else:
+            q.put({"type": "done", "out_dir": str(out_dir)})
+
+
+def _download_generic(job_id: str, url: str, out_dir: Path, title: str = "", is_playlist: bool = False, cover_url: str = "", codec: str = "mp3", quality: str = "320"):
+    """Universal downloader for Bandcamp, TikTok, Instagram, Vimeo, and web media."""
+    q = _job_queues[job_id]
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ydl_opts = _ydl_opts(job_id, out_dir, codec=codec, quality=quality)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except Exception as exc:
+        if not _job_cancelled.get(job_id):
+            q.put({"type": "error", "message": str(exc)})
+    finally:
+        if _job_cancelled.get(job_id):
+            shutil.rmtree(out_dir, ignore_errors=True)
+            q.put({"type": "cancelled", "message": "Download stopped by user"})
+        else:
+            q.put({"type": "done", "out_dir": str(out_dir)})
+
+
+# ── Specific Software Info Extractors ─────────────────────────────────────────
+
+def _applemusic_info(url: str) -> dict:
+    url = resolve_url(url)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    title = ""
+    artist = ""
+    thumb = ""
+    is_playlist = "/playlist/" in url or "/album/" in url
+    tracks = []
+
+    try:
+        resp = http_requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            og_title = soup.find("meta", property="og:title")
+            if og_title and og_title.get("content"):
+                title = og_title["content"].strip()
+            og_image = soup.find("meta", property="og:image")
+            if og_image and og_image.get("content"):
+                thumb = re.sub(r'/\d+x\d+bb\.', '/600x600bb.', og_image["content"].strip())
+
+            for s in soup.find_all("script", type="application/ld+json"):
+                try:
+                    data = json.loads(s.string)
+                    if isinstance(data, list):
+                        data = data[0]
+                    if isinstance(data, dict):
+                        if not title:
+                            title = data.get("name", "")
+                        if not thumb and data.get("image"):
+                            thumb = data.get("image")
+                        items = data.get("tracks") or data.get("itemListElement") or []
+                        for item in items:
+                            t_item = item.get("item", item)
+                            t_name = t_item.get("name")
+                            t_artist = ""
+                            if t_item.get("byArtist"):
+                                by_a = t_item["byArtist"]
+                                t_artist = by_a.get("name", "") if isinstance(by_a, dict) else str(by_a)
+                            if t_name:
+                                tracks.append({"title": t_name, "artist": t_artist or "Apple Music"})
+                except Exception:
+                    pass
+
+            if not title and soup.title:
+                title = re.sub(r'(\s*on Apple Music|\s*-\s*Apple Music).*$', '', soup.title.string).strip()
+    except Exception as exc:
+        print(f"Apple Music parser error: {exc}")
+
+    if not title:
+        title = "Apple Music Audio"
+
+    count = len(tracks) if tracks else (1 if not is_playlist else None)
+    return {
+        "title": title,
+        "thumbnail": thumb,
+        "channel": f"{artist or 'Apple Music'} • Apple Music",
+        "is_playlist": is_playlist,
+        "count": count,
+        "duration": None,
+        "webpage_url": url,
+        "source": "applemusic",
+        "tracks": tracks
+    }
+
+
+def _soundcloud_info(url: str) -> dict:
+    url = resolve_url(url)
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "ignoreerrors": False,
+        "extract_flat": "in_playlist",
+        "socket_timeout": 20,
+    }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    is_playlist = info.get("_type") == "playlist" or "/sets/" in url
+    entries = info.get("entries", [])
+    thumb = info.get("thumbnail") or (entries[0].get("thumbnail") if entries else "")
+    if thumb:
+        thumb = thumb.replace("-large.", "-t500x500.")
+    return {
+        "title": info.get("title") or "SoundCloud Audio",
+        "thumbnail": thumb,
+        "channel": f"{info.get('uploader') or 'SoundCloud'} • SoundCloud",
+        "is_playlist": is_playlist,
+        "count": len(entries) if is_playlist else 1,
+        "duration": info.get("duration"),
+        "webpage_url": info.get("webpage_url") or url,
+        "source": "soundcloud",
+        "tracks": []
+    }
+
+
+def _youtube_info(url: str) -> dict:
+    url = resolve_url(url)
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "ignoreerrors": False,
+        "extract_flat": "in_playlist",
+        "socket_timeout": 20,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "web"],
+            }
+        }
+    }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    is_playlist = info.get("_type") == "playlist" or "list=" in url
+    entries = info.get("entries", [])
+    is_ytmusic = "music.youtube.com" in url
+    platform_name = "YouTube Music" if is_ytmusic else "YouTube"
+    return {
+        "title": info.get("title") or f"{platform_name} Audio",
+        "thumbnail": info.get("thumbnail") or (entries[0].get("thumbnail") if entries else ""),
+        "channel": f"{info.get('uploader') or info.get('channel') or platform_name} • {platform_name}",
+        "is_playlist": is_playlist,
+        "count": len(entries) if is_playlist else 1,
+        "duration": info.get("duration"),
+        "webpage_url": info.get("webpage_url") or url,
+        "source": "ytmusic" if is_ytmusic else "youtube",
+        "tracks": []
+    }
+
+
+def _generic_info(url: str) -> dict:
+    url = resolve_url(url)
+    is_http = url.startswith("http://") or url.startswith("https://")
+    fetch_target = url if is_http else f"ytsearch1:{url}"
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "ignoreerrors": False,
+        "extract_flat": "in_playlist",
+        "socket_timeout": 20,
+    }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(fetch_target, download=False)
+    if info.get("_type") == "playlist" and "entries" in info and not is_http:
+        entries = info.get("entries", [])
+        if entries:
+            info = entries[0]
+    is_playlist = info.get("_type") == "playlist"
+    entries = info.get("entries", [])
+    return {
+        "title": info.get("title") or "Audio",
+        "thumbnail": info.get("thumbnail") or (entries[0].get("thumbnail") if entries else ""),
+        "channel": info.get("uploader") or info.get("channel") or ("Search Result" if not is_http else "Web Media"),
+        "is_playlist": is_playlist,
+        "count": len(entries) if is_playlist else 1,
+        "duration": info.get("duration"),
+        "webpage_url": info.get("webpage_url") or url,
+        "source": "search" if not is_http else "generic",
+        "tracks": []
+    }
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/api/analyze-link", methods=["POST", "GET"])
+def analyze_link_route():
+    data = {}
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+    if not data:
+        data = request.get_json(force=True, silent=True) or {}
+    if not data:
+        data = request.form.to_dict() or request.args.to_dict() or {}
+
+    raw_url = (data.get("url") or request.args.get("url") or "").strip()
+    if not raw_url:
+        return jsonify({"platform": None})
+    return jsonify({"platform": analyze_software_link(raw_url)})
 
 
 @app.route("/api/info", methods=["POST", "GET"])
@@ -532,56 +940,26 @@ def get_info():
         return jsonify({"error": "No link or search term provided"}), 400
 
     url = resolve_url(raw_url)
+    platform = analyze_software_link(url)
+    pid = platform["platform_id"]
 
     try:
-        if is_spotify(url):
-            return jsonify(_spotify_info(url))
+        if pid == "spotify":
+            info = _spotify_info(url)
+        elif pid == "applemusic":
+            info = _applemusic_info(url)
+        elif pid == "soundcloud":
+            info = _soundcloud_info(url)
+        elif pid in ("youtube", "ytmusic"):
+            info = _youtube_info(url)
+        else:
+            info = _generic_info(url)
 
-        # Check if URL or plain search term
-        is_http = url.startswith("http://") or url.startswith("https://")
-        fetch_target = url if is_http else f"ytsearch1:{url}"
-
-        # yt-dlp for YouTube, SoundCloud, Bandcamp, Vimeo, etc.
-        opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "ignoreerrors": False,
-            "extract_flat": "in_playlist",
-            "socket_timeout": 20,
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android", "ios", "web"],
-                }
-            }
-        }
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(fetch_target, download=False)
-        if not info:
-            return jsonify({"error": "Could not find audio for this link"}), 400
-
-        # If it was a search query, unwrap the first result
-        if info.get("_type") == "playlist" and "entries" in info and not is_http:
-            entries = info.get("entries", [])
-            if entries:
-                info = entries[0]
-            else:
-                return jsonify({"error": "No results found for your search"}), 400
-
-        is_playlist = info.get("_type") == "playlist"
-        entries     = info.get("entries", [])
-        return jsonify({
-            "title":       info.get("title") or "Unknown",
-            "thumbnail":   info.get("thumbnail") or (entries[0].get("thumbnail") if entries else ""),
-            "channel":     info.get("uploader") or info.get("channel") or "",
-            "is_playlist": is_playlist,
-            "count":       len(entries) if is_playlist else 1,
-            "duration":    info.get("duration"),
-            "webpage_url": info.get("webpage_url") or url,
-            "source":      "ytdlp",
-        })
+        info["platform"] = platform
+        return jsonify(info)
     except Exception as exc:
         err_msg = str(exc)
-        print(f"Error fetching info for '{url}': {err_msg}")
+        print(f"Error fetching info for '{url}' via {platform.get('engine', 'engine')}: {err_msg}")
         return jsonify({"error": err_msg}), 400
 
 
@@ -592,7 +970,6 @@ def start_download():
     url         = resolve_url(raw_url) if raw_url else ""
     info_title  = (data.get("title") or "").strip()
     is_playlist = bool(data.get("is_playlist"))
-    source      = data.get("source", "ytdlp")
     tracks      = data.get("tracks", [])
     cover_url   = (data.get("thumbnail") or data.get("cover_url") or "").strip()
     quality_param = data.get("quality", "mp3_320")
@@ -604,9 +981,11 @@ def start_download():
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    job_id = str(uuid.uuid4())
+    platform = analyze_software_link(url)
+    pid = platform["platform_id"]
+    engine_name = platform["engine"]
 
-    # Folder logic: each download job gets its own isolated directory
+    job_id = str(uuid.uuid4())
     folder_name = sanitize_folder(info_title) if info_title else job_id
     out_dir = BASE_DIR / folder_name
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -620,7 +999,16 @@ def start_download():
         try:
             if _job_cancelled.get(job_id):
                 return
-            # Always attempt to save the cover image file in the download directory
+
+            # Announce engine initialization for this specific software
+            q.put({
+                "type": "progress",
+                "percent": 0,
+                "speed": "",
+                "filename": f"Initialized {engine_name} for {platform['name']} ({platform['type_label']})…"
+            })
+
+            # Save cover image if present
             if cover_url:
                 cover_path = out_dir / "cover.jpg"
                 if not cover_path.exists():
@@ -631,21 +1019,18 @@ def start_download():
                     except Exception as e:
                         print(f"Error saving cover.jpg: {e}")
 
-            if source == "spotify" or is_spotify(url):
+            # Specific software execution dispatch
+            if pid == "spotify":
                 _download_spotify(job_id, url, out_dir, title=info_title, tracks=tracks, cover_url=cover_url, codec=codec, quality=quality)
+            elif pid == "applemusic":
+                _download_applemusic(job_id, url, out_dir, title=info_title, tracks=tracks, cover_url=cover_url, codec=codec, quality=quality)
+            elif pid in ("youtube", "ytmusic"):
+                _download_youtube(job_id, url, out_dir, title=info_title, is_playlist=is_playlist, cover_url=cover_url, codec=codec, quality=quality)
+            elif pid == "soundcloud":
+                _download_soundcloud(job_id, url, out_dir, title=info_title, is_playlist=is_playlist, cover_url=cover_url, codec=codec, quality=quality)
             else:
-                try:
-                    with yt_dlp.YoutubeDL(_ydl_opts(job_id, out_dir, codec=codec, quality=quality)) as ydl:
-                        ydl.download([url])
-                except Exception as exc:
-                    if _job_cancelled.get(job_id):
-                        shutil.rmtree(out_dir, ignore_errors=True)
-                        q.put({"type": "cancelled", "message": "Download stopped by user"})
-                    else:
-                        q.put({"type": "error", "message": str(exc)})
-                finally:
-                    if not _job_cancelled.get(job_id):
-                        q.put({"type": "done", "out_dir": str(out_dir)})
+                _download_generic(job_id, url, out_dir, title=info_title, is_playlist=is_playlist, cover_url=cover_url, codec=codec, quality=quality)
+
         except Exception as exc:
             if _job_cancelled.get(job_id):
                 shutil.rmtree(out_dir, ignore_errors=True)
@@ -661,6 +1046,7 @@ def start_download():
         "job_id": job_id,
         "out_dir": str(out_dir),
         "folder": folder_name,
+        "platform": platform,
     })
 
 
