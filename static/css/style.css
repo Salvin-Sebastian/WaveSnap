@@ -748,6 +748,78 @@ body {
   color: #e2e8f0;
 }
 
+/* ── Progress Completion Box ────────────────────────────────── */
+.prog-complete-box {
+  margin-top: 16px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(6, 182, 212, 0.12) 100%);
+  border: 1.5px solid rgba(16, 185, 129, 0.45);
+  border-radius: var(--r-md);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: rise 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  box-shadow: 0 4px 24px rgba(16, 185, 129, 0.18);
+}
+.complete-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.complete-badge-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
+}
+.complete-text-wrap {
+  flex: 1;
+}
+.complete-headline {
+  font-size: 1.08rem;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0 0 4px 0;
+}
+.complete-subtext {
+  font-size: 0.82rem;
+  color: var(--c-muted);
+  line-height: 1.35;
+  margin: 0;
+}
+.btn-save-zip-hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 22px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #fff !important;
+  font-size: 0.95rem;
+  font-weight: 800;
+  border-radius: var(--r-md);
+  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.45);
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform var(--t), box-shadow var(--t);
+  animation: pulse-ring 2.5s infinite;
+}
+.btn-save-zip-hero:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 26px rgba(16, 185, 129, 0.65);
+}
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+  70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
 /* ── Files card ─────────────────────────────────────────────── */
 .files-card { padding: 20px; animation: rise 0.35s ease both; }
 

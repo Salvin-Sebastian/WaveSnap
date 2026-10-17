@@ -1632,7 +1632,6 @@ def download_zip():
     # Ensure all browsers (desktop & mobile) treat as a direct binary attachment with known length
     response.headers["Content-Length"] = str(file_size)
     response.headers["Content-Type"] = "application/zip"
-    response.headers["Content-Disposition"] = f'attachment; filename="{zip_filename}"'
     response.headers["Content-Description"] = "File Transfer"
     response.headers["Content-Transfer-Encoding"] = "binary"
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"

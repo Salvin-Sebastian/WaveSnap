@@ -53,7 +53,14 @@ const progFill    = $("prog-fill");
 const progPct       = $("prog-percent");
 const progBytesText = $("prog-bytes-text") || $("prog-bytes");
 const progBar       = $("prog-track-bar");
-const cancelDlBtn = $("cancel-dl-btn");
+const cancelDlBtn   = $("cancel-dl-btn");
+const progSpinner   = document.querySelector(".prog-spinner");
+const progHint      = $("prog-hint");
+const progCompleteBox = $("prog-complete-box");
+const completeHeadline = $("complete-headline");
+const completeSubtext = $("complete-subtext");
+const progCompleteDlBtn = $("prog-complete-dl-btn");
+const progCompleteDlText = $("prog-complete-dl-text");
 
 const filesSection = $("files-section");
 const filesTitle  = $("files-title");
@@ -609,23 +616,46 @@ function listenSSE(jobId, outDir) {
       const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
       const deviceLabel = isMobile ? "Phone" : "Device";
 
+      // Stop spinner, cancel button, and hint since processing is complete
+      if (progSpinner) progSpinner.style.display = "none";
+      if (cancelDlBtn) cancelDlBtn.style.display = "none";
+      if (progHint) progHint.style.display = "none";
+
       if (isPlaylist) {
-        // Keep progress card visible showing complete packaging state
         const dataText = msg.data_text || (msg.zip_size ? `${fmtBytes(msg.zip_size)} / ${fmtBytes(msg.zip_size)}` : "");
         setProgress(100, "", dataText);
-        progLabel.textContent = `🎉 All songs packaged into ZIP! Downloading to your ${deviceLabel}…`;
+        progLabel.textContent = `🎉 All songs packaged into ZIP!`;
         progTrack.textContent = msg.zip_filename || "Playlist.zip";
 
-        toast(`All songs saved into ZIP! Sending to your ${deviceLabel}… 🎵`, "success", 5000);
+        toast(`All songs saved into ZIP! Ready for your ${deviceLabel}… 🎵`, "success", 5000);
 
-        // Immediate direct download trigger of the pre-built ZIP
+        // Show prominent direct download button right inside the progress card
+        if (progCompleteBox && msg.zip_url) {
+          progCompleteBox.classList.remove("hidden");
+          if (completeHeadline) completeHeadline.textContent = `All Songs Packaged into ZIP!`;
+          if (completeSubtext) completeSubtext.textContent = `Your ${deviceLabel} should download automatically. If it didn't, tap below to save:`;
+          if (progCompleteDlBtn) {
+            progCompleteDlBtn.href = msg.zip_url;
+            progCompleteDlBtn.setAttribute("download", msg.zip_filename || "Playlist.zip");
+            progCompleteDlBtn.onclick = () => {
+              triggerBrowserDownload(msg.zip_url, msg.zip_filename || "Playlist.zip");
+            };
+          }
+          if (progCompleteDlText) {
+            const sizeLabel = msg.zip_size ? ` (${fmtBytes(msg.zip_size)})` : "";
+            progCompleteDlText.textContent = `⬇️ Save "${msg.zip_filename || 'Playlist.zip'}" to My ${deviceLabel}${sizeLabel}`;
+          }
+        }
+
+        // Automatic download trigger
         if (msg.zip_url) {
           triggerBrowserDownload(msg.zip_url, msg.zip_filename || "Playlist.zip");
         }
 
-        // Also load files section so user has full backup access and hero button
+        // Also load files section so user has full backup access and individual tracks
         loadFiles(outDir, msg);
       } else {
+        if (progCompleteBox) progCompleteBox.classList.add("hidden");
         progSection.classList.add("hidden");
         loadFiles(outDir, msg);
         toast("Audio conversion complete! Sending to your device… 🎵", "success");
@@ -813,11 +843,26 @@ function triggerBrowserDownload(url, filename) {
     return;
   }
 
-  // Android, Windows PC, Mac, Linux: single clean anchor click
+  // Method 1: Hidden iframe trigger (safest across desktop and Android for attachment downloads)
+  try {
+    let iframe = document.getElementById("hidden-dl-frame");
+    if (!iframe) {
+      iframe = document.createElement("iframe");
+      iframe.id = "hidden-dl-frame";
+      iframe.style.display = "none";
+      document.body.appendChild(iframe);
+    }
+    iframe.src = url;
+  } catch (err) {
+    console.warn("Iframe download trigger error:", err);
+  }
+
+  // Method 2: Anchor click trigger
   try {
     const a = document.createElement("a");
     a.href = url;
     if (filename) a.setAttribute("download", filename);
+    a.rel = "noopener";
     a.style.display = "none";
     document.body.appendChild(a);
     a.click();
@@ -884,6 +929,10 @@ function resetProgress() {
   if (progSpeed) progSpeed.textContent = "";
   if (progPct) progPct.textContent = "0%";
   if (progBytesText) progBytesText.textContent = "0.0 MB";
+  if (progCompleteBox) progCompleteBox.classList.add("hidden");
+  if (progSpinner) progSpinner.style.display = "";
+  if (progHint) progHint.style.display = "";
+  if (cancelDlBtn) cancelDlBtn.style.display = "";
 }
 
 function setProgress(pct, speed, dataText) {
