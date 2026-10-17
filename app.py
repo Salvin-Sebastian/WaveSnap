@@ -1020,8 +1020,20 @@ def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", track
             })
             return
 
-        done_payload = {"type": "done", "out_dir": str(out_dir), "is_playlist": True}
+        is_pl = total_tracks > 1
+        done_payload = {"type": "done", "out_dir": str(out_dir), "is_playlist": is_pl}
         done_payload.update(zip_info)
+
+        if not is_pl:
+            valid_audio_exts = {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"}
+            audio_files = [f for f in out_dir.iterdir() if f.is_file() and f.suffix.lower() in valid_audio_exts and f.stat().st_size > 10000]
+            if audio_files:
+                f0 = audio_files[0]
+                rel_path = str(f0.relative_to(BASE_DIR)).replace("\\", "/")
+                done_payload["file_url"] = f"/api/download-file?path={quote(rel_path)}&name={quote(f0.name)}"
+                done_payload["file_name"] = f0.name
+                done_payload["file_size"] = f0.stat().st_size
+
         q.put(done_payload)
 
     except Exception as exc:
@@ -1060,6 +1072,20 @@ def _download_applemusic(job_id: str, url: str, out_dir: Path, title: str = "", 
         if not title:
             title = info.get("title", "")
     _download_tracklist_batch(job_id, out_dir, title=title, tracks=tracks, cover_url=cover_url, codec=codec, quality=quality, default_source="Apple Music")
+
+
+def _build_done_payload(out_dir: Path, is_playlist: bool, zip_info: dict | None, valid_audio: list) -> dict:
+    is_pl = is_playlist or len(valid_audio) > 1
+    done_payload = {"type": "done", "out_dir": str(out_dir), "is_playlist": is_pl}
+    if zip_info:
+        done_payload.update(zip_info)
+    if valid_audio:
+        f0 = valid_audio[0]
+        rel_path = str(f0.relative_to(BASE_DIR)).replace("\\", "/")
+        done_payload["file_url"] = f"/api/download-file?path={quote(rel_path)}&name={quote(f0.name)}"
+        done_payload["file_name"] = f0.name
+        done_payload["file_size"] = f0.stat().st_size
+    return done_payload
 
 
 def _download_youtube(job_id: str, url: str, out_dir: Path, title: str = "", is_playlist: bool = False, cover_url: str = "", codec: str = "mp3", quality: str = "320"):
@@ -1108,15 +1134,12 @@ def _download_youtube(job_id: str, url: str, out_dir: Path, title: str = "", is_
             q.put({"type": "cancelled", "message": "Download stopped by user"})
         else:
             zip_info = None
+            valid_audio = []
             if out_dir.exists():
                 valid_audio = [f for f in out_dir.iterdir() if f.is_file() and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"} and f.stat().st_size > 10000]
                 if is_playlist or len(valid_audio) > 1:
                     zip_info = _finalize_playlist_zip(job_id, out_dir, title=title)
-            done_payload = {"type": "done", "out_dir": str(out_dir)}
-            if zip_info:
-                done_payload.update(zip_info)
-                done_payload["is_playlist"] = True
-            q.put(done_payload)
+            q.put(_build_done_payload(out_dir, is_playlist, zip_info, valid_audio))
 
 
 def _download_soundcloud(job_id: str, url: str, out_dir: Path, title: str = "", is_playlist: bool = False, cover_url: str = "", codec: str = "mp3", quality: str = "320"):
@@ -1136,15 +1159,12 @@ def _download_soundcloud(job_id: str, url: str, out_dir: Path, title: str = "", 
             q.put({"type": "cancelled", "message": "Download stopped by user"})
         else:
             zip_info = None
+            valid_audio = []
             if out_dir.exists():
                 valid_audio = [f for f in out_dir.iterdir() if f.is_file() and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"} and f.stat().st_size > 10000]
                 if is_playlist or len(valid_audio) > 1:
                     zip_info = _finalize_playlist_zip(job_id, out_dir, title=title)
-            done_payload = {"type": "done", "out_dir": str(out_dir)}
-            if zip_info:
-                done_payload.update(zip_info)
-                done_payload["is_playlist"] = True
-            q.put(done_payload)
+            q.put(_build_done_payload(out_dir, is_playlist, zip_info, valid_audio))
 
 
 def _download_generic(job_id: str, url: str, out_dir: Path, title: str = "", is_playlist: bool = False, cover_url: str = "", codec: str = "mp3", quality: str = "320"):
@@ -1164,15 +1184,12 @@ def _download_generic(job_id: str, url: str, out_dir: Path, title: str = "", is_
             q.put({"type": "cancelled", "message": "Download stopped by user"})
         else:
             zip_info = None
+            valid_audio = []
             if out_dir.exists():
                 valid_audio = [f for f in out_dir.iterdir() if f.is_file() and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"} and f.stat().st_size > 10000]
                 if is_playlist or len(valid_audio) > 1:
                     zip_info = _finalize_playlist_zip(job_id, out_dir, title=title)
-            done_payload = {"type": "done", "out_dir": str(out_dir)}
-            if zip_info:
-                done_payload.update(zip_info)
-                done_payload["is_playlist"] = True
-            q.put(done_payload)
+            q.put(_build_done_payload(out_dir, is_playlist, zip_info, valid_audio))
 
 
 # ── Specific Software Info Extractors ─────────────────────────────────────────

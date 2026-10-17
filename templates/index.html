@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/style.css?v=2.8" />
+  <link rel="stylesheet" href="/static/css/style.css?v=2.9" />
 </head>
 <body>
 
@@ -262,14 +262,14 @@
           </div>
         </div>
         <div class="save-hero-actions">
-          <button id="hero-dl-btn" class="btn btn-save-hero" aria-label="Save to device">
+          <a id="hero-dl-btn" class="btn btn-save-hero" href="#" download aria-label="Save to device">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="7 10 12 15 17 10"/>
               <line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
             <span id="hero-dl-text">Save to Device</span>
-          </button>
+          </a>
         </div>
       </div>
 
@@ -281,15 +281,15 @@
           <span id="files-title">All Files</span>
         </h2>
         <div class="files-actions">
-          <button id="dl-zip-btn" class="btn btn-sm btn-primary hidden">Download as ZIP (.zip)</button>
-          <button id="dl-cover-btn" class="btn btn-sm btn-outline hidden">
+          <a id="dl-zip-btn" class="btn btn-sm btn-primary hidden" href="#" download>Download as ZIP (.zip)</a>
+          <a id="dl-cover-btn" class="btn btn-sm btn-outline hidden" href="#" download>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="margin-right:4px;vertical-align:-2px;">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
               <circle cx="8.5" cy="8.5" r="1.5"/>
               <polyline points="21 15 16 10 5 21"/>
             </svg>
             Save Cover (.jpg)
-          </button>
+          </a>
           <button id="dl-all-btn" class="btn btn-sm btn-outline hidden">Save All</button>
         </div>
       </div>
@@ -319,6 +319,6 @@
   <!-- Toast container -->
   <div id="toasts" class="toasts" role="alert" aria-live="assertive"></div>
 
-  <script src="/static/js/app.js?v=2.8"></script>
+  <script src="/static/js/app.js?v=2.9"></script>
 </body>
 </html>

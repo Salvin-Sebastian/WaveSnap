@@ -612,7 +612,7 @@ function listenSSE(jobId, outDir) {
       state.activeSSE = null;
       dlBtn.disabled = false;
 
-      const isPlaylist = msg.is_playlist || (state.tracksTotal > 1);
+      const isPlaylist = Boolean(msg.is_playlist || (state.tracksTotal > 1));
       const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
       const deviceLabel = isMobile ? "Phone" : "Device";
 
@@ -621,45 +621,81 @@ function listenSSE(jobId, outDir) {
       if (cancelDlBtn) cancelDlBtn.style.display = "none";
       if (progHint) progHint.style.display = "none";
 
+      const phase1 = $("phase-step-1");
+      const phase2 = $("phase-step-2");
+      if (phase1) phase1.classList.remove("active");
+      if (phase2) phase2.classList.add("active");
+
+      let targetUrl = "";
+      let targetName = "";
+
       if (isPlaylist) {
+        targetUrl = msg.zip_url || `/api/download-zip?folder=${encodeURIComponent(msg.folder || "")}&title=${encodeURIComponent(msg.title || "")}`;
+        targetName = msg.zip_filename || `${msg.title || "Playlist"}.zip`;
         const dataText = msg.data_text || (msg.zip_size ? `${fmtBytes(msg.zip_size)} / ${fmtBytes(msg.zip_size)}` : "");
         setProgress(100, "", dataText);
         progLabel.textContent = `🎉 All songs packaged into ZIP!`;
-        progTrack.textContent = msg.zip_filename || "Playlist.zip";
+        progTrack.textContent = targetName;
 
         toast(`All songs saved into ZIP! Ready for your ${deviceLabel}… 🎵`, "success", 5000);
 
-        // Show prominent direct download button right inside the progress card
-        if (progCompleteBox && msg.zip_url) {
+        if (progCompleteBox) {
           progCompleteBox.classList.remove("hidden");
           if (completeHeadline) completeHeadline.textContent = `All Songs Packaged into ZIP!`;
-          if (completeSubtext) completeSubtext.textContent = `Your ${deviceLabel} should download automatically. If it didn't, tap below to save:`;
+          if (completeSubtext) completeSubtext.textContent = `Tap the green button below to save directly to your ${deviceLabel}'s Downloads folder:`;
           if (progCompleteDlBtn) {
-            progCompleteDlBtn.href = msg.zip_url;
-            progCompleteDlBtn.setAttribute("download", msg.zip_filename || "Playlist.zip");
+            progCompleteDlBtn.href = targetUrl;
+            progCompleteDlBtn.setAttribute("download", targetName);
             progCompleteDlBtn.onclick = () => {
-              triggerBrowserDownload(msg.zip_url, msg.zip_filename || "Playlist.zip");
+              toast(`Downloading "${targetName}"…`, "success", 3000);
             };
           }
           if (progCompleteDlText) {
             const sizeLabel = msg.zip_size ? ` (${fmtBytes(msg.zip_size)})` : "";
-            progCompleteDlText.textContent = `⬇️ Save "${msg.zip_filename || 'Playlist.zip'}" to My ${deviceLabel}${sizeLabel}`;
+            progCompleteDlText.textContent = `⬇️ Save "${targetName}" to My ${deviceLabel}${sizeLabel}`;
           }
         }
-
-        // Automatic download trigger
-        if (msg.zip_url) {
-          triggerBrowserDownload(msg.zip_url, msg.zip_filename || "Playlist.zip");
-        }
-
-        // Also load files section so user has full backup access and individual tracks
-        loadFiles(outDir, msg);
       } else {
-        if (progCompleteBox) progCompleteBox.classList.add("hidden");
-        progSection.classList.add("hidden");
-        loadFiles(outDir, msg);
-        toast("Audio conversion complete! Sending to your device… 🎵", "success");
+        targetUrl = msg.file_url || "";
+        targetName = msg.file_name || (state.currentInfo ? `${state.currentInfo.title}.mp3` : "Audio.mp3");
+        const sizeLabel = msg.file_size ? fmtBytes(msg.file_size) : (msg.done_mb ? `${msg.done_mb} MB` : "");
+        setProgress(100, "", sizeLabel);
+        progLabel.textContent = `🎉 Audio Ready: 100% Converted!`;
+        progTrack.textContent = targetName;
+
+        toast(`Audio ready! Tap below or check your ${deviceLabel}… 🎵`, "success", 5000);
+
+        if (progCompleteBox) {
+          progCompleteBox.classList.remove("hidden");
+          if (completeHeadline) completeHeadline.textContent = `Audio Ready for Your ${deviceLabel}!`;
+          if (completeSubtext) completeSubtext.textContent = `High-quality MP3 conversion is complete. Tap below to save directly to your Downloads folder:`;
+          if (progCompleteDlBtn && targetUrl) {
+            progCompleteDlBtn.href = targetUrl;
+            progCompleteDlBtn.setAttribute("download", targetName);
+            progCompleteDlBtn.onclick = () => {
+              toast(`Downloading "${targetName}"…`, "success", 3000);
+            };
+          }
+          if (progCompleteDlText) {
+            progCompleteDlText.textContent = `⬇️ Save "${targetName}" to My ${deviceLabel} (${sizeLabel || "MP3"})`;
+          }
+        }
       }
+
+      // Smooth scroll so the user immediately sees the completion box
+      setTimeout(() => {
+        if (progCompleteBox) {
+          progCompleteBox.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 100);
+
+      // Automatic download trigger
+      if (targetUrl) {
+        triggerBrowserDownload(targetUrl, targetName);
+      }
+
+      // Always load files section so user has full backup access and individual tracks
+      loadFiles(outDir, msg);
       return;
     }
   };
@@ -700,18 +736,38 @@ async function loadFiles(outDir, doneMsg) {
     if (saveHero) {
       if (files.length === 1) {
         const singleExt = (files[0].name.split('.').pop() || "mp3").toUpperCase();
+        const dlUrl = `/api/download-file?path=${encodeURIComponent(files[0].rel)}&name=${encodeURIComponent(files[0].name || "")}`;
+
         if (saveHeroBadge) saveHeroBadge.textContent = "Audio Ready";
         if (saveHeroHeadline) saveHeroHeadline.textContent = `Save "${files[0].name}" to Your ${deviceLabel}`;
-        if (saveHeroSub) saveHeroSub.textContent = `Your 320kbps MP3 with album artwork is ready. Tap below if download did not start automatically.`;
+        if (saveHeroSub) saveHeroSub.textContent = `Your 320kbps MP3 with album artwork is ready. Tap below to save directly to your Downloads folder.`;
         if (heroDlText) heroDlText.textContent = `Save to My ${deviceLabel} (${singleExt} · ${fmtBytes(files[0].size)})`;
-        if (heroDlBtn) heroDlBtn.onclick = () => {
-          const dlUrl = `/api/download-file?path=${encodeURIComponent(files[0].rel)}&name=${encodeURIComponent(files[0].name || "")}`;
-          triggerBrowserDownload(dlUrl, files[0].name);
-        };
 
-        // Auto-trigger browser download to device for single song
-        triggerSave(files[0].rel, files[0].name);
-        toast(`Sending "${files[0].name}" to your ${deviceLabel}…`, "success", 4000);
+        // Direct native link configuration (never blocked by popup filters)
+        if (heroDlBtn) {
+          heroDlBtn.href = dlUrl;
+          heroDlBtn.setAttribute("download", files[0].name);
+          heroDlBtn.onclick = () => {
+            toast(`Downloading "${files[0].name}"…`, "success", 3000);
+          };
+        }
+
+        // If progCompleteDlBtn didn't have URL from SSE, update it now
+        if (progCompleteDlBtn && (!progCompleteDlBtn.href || progCompleteDlBtn.href.endsWith("#"))) {
+          progCompleteDlBtn.href = dlUrl;
+          progCompleteDlBtn.setAttribute("download", files[0].name);
+          if (progCompleteDlText) {
+            progCompleteDlText.textContent = `⬇️ Save "${files[0].name}" to My ${deviceLabel} (${fmtBytes(files[0].size)})`;
+          }
+          progCompleteDlBtn.onclick = () => {
+            toast(`Downloading "${files[0].name}"…`, "success", 3000);
+          };
+        }
+
+        // Auto-trigger browser download to device for single song if not already triggered
+        if (!doneMsg || !doneMsg.file_url) {
+          triggerBrowserDownload(dlUrl, files[0].name);
+        }
       } else {
         const zipUrl = (doneMsg && doneMsg.zip_url) ? doneMsg.zip_url : `/api/download-zip?folder=${encodeURIComponent(data.folder)}&title=${encodeURIComponent(zipTitle)}`;
         const zipName = (doneMsg && doneMsg.zip_filename) ? doneMsg.zip_filename : `${zipTitle}.zip`;
@@ -721,20 +777,33 @@ async function loadFiles(outDir, doneMsg) {
         if (saveHeroHeadline) saveHeroHeadline.textContent = `Save "${zipName}" to Your ${deviceLabel}`;
         if (saveHeroSub) saveHeroSub.textContent = `All ${files.length} songs and artwork are packaged in a ZIP archive. Tap below to download immediately, or save individual tracks below.`;
         if (heroDlText) heroDlText.textContent = `Save All to My ${deviceLabel} (.ZIP${zipSizeStr})`;
-        if (heroDlBtn) heroDlBtn.onclick = () => {
-          triggerBrowserDownload(zipUrl, zipName);
-        };
+
+        // Direct native link configuration
+        if (heroDlBtn) {
+          heroDlBtn.href = zipUrl;
+          heroDlBtn.setAttribute("download", zipName);
+          heroDlBtn.onclick = () => {
+            toast(`Downloading "${zipName}"…`, "success", 3000);
+          };
+        }
+
+        // If progCompleteDlBtn didn't have URL, update it now
+        if (progCompleteDlBtn && (!progCompleteDlBtn.href || progCompleteDlBtn.href.endsWith("#"))) {
+          progCompleteDlBtn.href = zipUrl;
+          progCompleteDlBtn.setAttribute("download", zipName);
+          if (progCompleteDlText) {
+            progCompleteDlText.textContent = `⬇️ Save "${zipName}" to My ${deviceLabel}${zipSizeStr}`;
+          }
+          progCompleteDlBtn.onclick = () => {
+            toast(`Downloading "${zipName}"…`, "success", 3000);
+          };
+        }
 
         // If not already triggered by SSE done event:
         if (!doneMsg || !doneMsg.zip_url) {
           triggerBrowserDownload(zipUrl, zipName);
         }
       }
-
-      // Smooth scroll so the user immediately sees the download card
-      setTimeout(() => {
-        filesSection.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 100);
     }
 
     if (filesTitle) {
@@ -753,6 +822,8 @@ async function loadFiles(outDir, doneMsg) {
             <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
           </svg>`;
 
+      const trackDlUrl = `/api/download-file?path=${encodeURIComponent(f.rel)}&name=${encodeURIComponent(f.name || "")}`;
+
       item.innerHTML = `
         <div class="file-thumb">
           ${thumbContent}
@@ -766,54 +837,59 @@ async function loadFiles(outDir, doneMsg) {
             ${f.folder ? `<span>·</span><span class="file-folder">📁 ${esc(f.folder)}</span>` : ""}
           </div>
         </div>
-        <button class="save-btn" data-rel="${esc(f.rel)}" data-name="${esc(f.name)}" aria-label="Save ${esc(f.name)}">
+        <a href="${trackDlUrl}" download="${esc(f.name)}" class="save-btn" aria-label="Save ${esc(f.name)}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
           Save
-        </button>`;
+        </a>`;
       fileList.appendChild(item);
     });
 
-    // Per-file save
-    document.querySelectorAll(".save-btn").forEach(btn => {
-      btn.addEventListener("click", () => triggerSave(btn.dataset.rel, btn.dataset.name));
-    });
-
     // Save Cover Art (.jpg)
-    if (data.cover) {
-      if (dlCoverBtn) {
-        dlCoverBtn.classList.remove("hidden");
-        dlCoverBtn.onclick = () => {
-          const coverTitle = state.currentInfo ? `${sanitizeFolderName(state.currentInfo.title)} - Cover.jpg` : "cover.jpg";
-          triggerSave(data.cover, coverTitle);
-        };
-      }
-    } else {
-      if (dlCoverBtn) dlCoverBtn.classList.add("hidden");
+    if (data.cover && dlCoverBtn) {
+      dlCoverBtn.classList.remove("hidden");
+      const coverTitle = state.currentInfo ? `${sanitizeFolderName(state.currentInfo.title)} - Cover.jpg` : "cover.jpg";
+      dlCoverBtn.href = `/api/download-file?path=${encodeURIComponent(data.cover)}&name=${encodeURIComponent(coverTitle)}`;
+      dlCoverBtn.setAttribute("download", coverTitle);
+      dlCoverBtn.onclick = () => { toast("Downloading cover artwork…", "success", 3000); };
+    } else if (dlCoverBtn) {
+      dlCoverBtn.classList.add("hidden");
     }
 
     // Download as ZIP for playlists/folders
-    if (data.folder && files.length > 0) {
-      if (dlZipBtn) {
-        dlZipBtn.classList.remove("hidden");
-        const zipSizeStr = data.total_size ? ` (${fmtBytes(data.total_size)})` : ` (${files.length} songs)`;
-        dlZipBtn.textContent = `Download as ZIP${zipSizeStr}`;
-        dlZipBtn.onclick = () => {
-          triggerZipDownload(data.folder, zipTitle);
-        };
-      }
-    } else {
-      if (dlZipBtn) dlZipBtn.classList.add("hidden");
+    if (data.folder && files.length > 0 && dlZipBtn) {
+      dlZipBtn.classList.remove("hidden");
+      const zipSizeStr = data.total_size ? ` (${fmtBytes(data.total_size)})` : ` (${files.length} songs)`;
+      const zipUrl = (doneMsg && doneMsg.zip_url) ? doneMsg.zip_url : `/api/download-zip?folder=${encodeURIComponent(data.folder)}&title=${encodeURIComponent(zipTitle)}`;
+      const zipName = (doneMsg && doneMsg.zip_filename) ? doneMsg.zip_filename : `${zipTitle}.zip`;
+      dlZipBtn.textContent = `Download as ZIP${zipSizeStr}`;
+      dlZipBtn.href = zipUrl;
+      dlZipBtn.setAttribute("download", zipName);
+      dlZipBtn.onclick = () => { toast(`Downloading "${zipName}"…`, "success", 3000); };
+    } else if (dlZipBtn) {
+      dlZipBtn.classList.add("hidden");
     }
 
     // Save All (individual files)
     if (files.length > 1) {
       dlAllBtn.classList.remove("hidden");
       dlAllBtn.onclick = () => {
-        files.forEach((f, i) => setTimeout(() => triggerSave(f.rel, f.name), i * 350));
+        toast(`Saving ${files.length} tracks to your device…`, "info", 4000);
+        files.forEach((f, i) => {
+          setTimeout(() => {
+            const dlUrl = `/api/download-file?path=${encodeURIComponent(f.rel)}&name=${encodeURIComponent(f.name || "")}`;
+            const tempLink = document.createElement("a");
+            tempLink.href = dlUrl;
+            tempLink.setAttribute("download", f.name);
+            tempLink.style.display = "none";
+            document.body.appendChild(tempLink);
+            tempLink.click();
+            setTimeout(() => tempLink.remove(), 2000);
+          }, i * 600);
+        });
       };
     } else {
       dlAllBtn.classList.add("hidden");
@@ -823,41 +899,18 @@ async function loadFiles(outDir, doneMsg) {
   }
 }
 
-function triggerSave(rel, name) {
-  const url = `/api/download-file?path=${encodeURIComponent(rel)}&name=${encodeURIComponent(name || "")}`;
-  triggerBrowserDownload(url, name);
-}
-
-function triggerZipDownload(folder, title) {
-  const zipTitle = title || folder;
-  const url = `/api/download-zip?folder=${encodeURIComponent(folder)}&title=${encodeURIComponent(zipTitle)}`;
-  triggerBrowserDownload(url, `${zipTitle}.zip`);
-}
-
 function triggerBrowserDownload(url, filename) {
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  if (!url) return;
+  const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-  if (isIOS) {
-    // iOS Safari triggers native file download dialog reliably via window.location.assign
+  if (isMobile) {
+    // On mobile devices (Android Chrome, iOS Safari), direct navigation to an attachment endpoint
+    // is universally supported and triggers the native download manager/dialog without leaving the page.
     window.location.assign(url);
     return;
   }
 
-  // Method 1: Hidden iframe trigger (safest across desktop and Android for attachment downloads)
-  try {
-    let iframe = document.getElementById("hidden-dl-frame");
-    if (!iframe) {
-      iframe = document.createElement("iframe");
-      iframe.id = "hidden-dl-frame";
-      iframe.style.display = "none";
-      document.body.appendChild(iframe);
-    }
-    iframe.src = url;
-  } catch (err) {
-    console.warn("Iframe download trigger error:", err);
-  }
-
-  // Method 2: Anchor click trigger
+  // On desktop browsers:
   try {
     const a = document.createElement("a");
     a.href = url;
@@ -868,9 +921,8 @@ function triggerBrowserDownload(url, filename) {
     a.click();
     setTimeout(() => {
       if (a.parentNode) a.parentNode.removeChild(a);
-    }, 2000);
-  } catch (e) {
-    console.warn("Anchor download error, falling back to location.assign:", e);
+    }, 1500);
+  } catch (err) {
     window.location.assign(url);
   }
 }

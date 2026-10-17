@@ -904,6 +904,7 @@ body {
   box-shadow: 0 4px 18px rgba(16,185,129,0.4);
   cursor: pointer;
   border: none;
+  text-decoration: none;
   transition: transform var(--t), box-shadow var(--t);
   width: 100%;
 }
@@ -1008,6 +1009,7 @@ body {
   font-weight: 700;
   cursor: pointer;
   border: none;
+  text-decoration: none;
   transition: transform var(--t-bounce), box-shadow var(--t);
   flex-shrink: 0;
   white-space: nowrap;
