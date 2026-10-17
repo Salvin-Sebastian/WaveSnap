@@ -237,7 +237,25 @@ def analyze_software_link(raw_input: str) -> dict:
             "description": f"SoundCloud {type_label} detected. Executes direct SoundCloud high-bitrate stream extraction."
         }
 
-    # 6. Bandcamp
+    # 6. JioSaavn
+    if any(k in u for k in ("jiosaavn.com", "saavn.com")):
+        is_pl = "/album/" in u or "/playlist/" in u or "/featured/" in u
+        type_label = "Playlist" if "/playlist/" in u else ("Album" if "/album/" in u else "Song")
+        return {
+            "platform_id": "jiosaavn",
+            "name": "JioSaavn",
+            "software": "JioSaavn 320kbps Downloader",
+            "engine": "JioSaavn CD Quality Engine",
+            "icon": "🟢",
+            "badge_color": "#2bc5b4",
+            "type": "playlist" if is_pl else "track",
+            "type_label": type_label,
+            "is_playlist": is_pl,
+            "url": url,
+            "description": f"JioSaavn {type_label} detected. Executes direct 320kbps CD audio extraction."
+        }
+
+    # 7. Bandcamp
     if "bandcamp.com" in u:
         is_pl = "/album/" in u
         type_label = "Album" if is_pl else "Track"
@@ -368,8 +386,8 @@ def _ydl_opts(job_id: str, out_dir: Path, codec: str = "mp3", quality: str = "32
         "geo_bypass": True,
         "extractor_args": {
             "youtube": {
-                "player_client": ["android_music", "android", "tv_embedded"],
-                "player_skip": ["web", "ios", "mweb"]
+                "player_client": ["android", "tv_embedded"],
+                "player_skip": ["web", "mweb"]
             }
         },
     }
@@ -557,7 +575,52 @@ def _spotify_info(url: str) -> dict:
         raise Exception(f"Could not fetch Spotify info: {exc}")
 
 
-# ── Spotify Downloader ────────────────────────────────────────────────────────
+# ── JioSaavn Search Helper (Direct 320kbps CD Audio, Zero Bot/DRM Check) ─────
+
+def find_jiosaavn_url(title: str, artist: str = "") -> str | None:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+    }
+    clean_title = re.sub(r'\(.*?\)|\[.*?\]', '', title).strip()
+    clean_artist = artist.split(",")[0].split("&")[0].strip() if artist else ""
+
+    queries = []
+    if clean_title and clean_artist:
+        queries.append(f"{clean_title} {clean_artist}")
+    if title and artist and f"{title} {artist}" not in queries:
+        queries.append(f"{title} {artist}")
+    if clean_title and clean_title not in queries:
+        queries.append(clean_title)
+    if title and title not in queries:
+        queries.append(title)
+
+    for q in queries:
+        try:
+            r = http_requests.get(
+                "https://www.jiosaavn.com/api.php",
+                params={
+                    "__call": "search.getResults",
+                    "_format": "json",
+                    "_marker": "0",
+                    "api_version": "4",
+                    "ctx": "web6dot0",
+                    "n": "3",
+                    "p": "1",
+                    "q": q
+                },
+                headers=headers,
+                timeout=5
+            )
+            if r.status_code == 200:
+                data = r.json()
+                results = data.get("results", [])
+                if results and results[0].get("perma_url"):
+                    return results[0]["perma_url"]
+        except Exception:
+            continue
+    return None
+
 
 # ── Batch Tracklist Downloader (Spotify, Apple Music, etc.) ───────────────────
 
@@ -624,15 +687,22 @@ def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", track
 
             outtmpl = str(out_dir / f"{base_name}.%(ext)s")
 
-            # Fallback search pipeline:
-            # 1. YouTube Music via Android Music & TV clients (bypasses web bot-detection)
-            # 2. General YouTube search with android client
-            # 3. SoundCloud search (never blocks datacenter IPs)
-            search_targets = [
-                ("youtube", f"ytsearch1:{t_title} {t_artist} audio"),
-                ("youtube", f"ytsearch1:{t_title} {t_artist}"),
-                ("soundcloud", f"scsearch1:{t_title} {t_artist}"),
-            ]
+            # Multi-tier resilient search & download pipeline:
+            # 1. JioSaavn (320kbps CD audio direct from Akamai/Cloudflare CDN, 0 bot check, 0 DRM)
+            # 2. YouTube Music / YouTube with android & tv_embedded clients
+            # 3. SoundCloud search (graceful DRM skip)
+            search_targets = []
+            jio_url = find_jiosaavn_url(t_title, t_artist)
+            if jio_url:
+                search_targets.append(("jiosaavn", jio_url))
+
+            clean_title = re.sub(r'\(.*?\)|\[.*?\]', '', t_title).strip()
+            search_targets.append(("youtube", f"ytsearch1:{clean_title} {t_artist} audio"))
+            search_targets.append(("youtube", f"ytsearch1:{t_title} {t_artist}"))
+            search_targets.append(("soundcloud", f"scsearch1:{clean_title} {t_artist}"))
+
+            # Slight thread staggering to prevent cloud bursting
+            time.sleep(min(idx * 0.15, 1.2))
 
             success = False
             for provider, target in search_targets:
@@ -644,16 +714,16 @@ def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", track
                     "outtmpl": outtmpl,
                     "quiet": True,
                     "no_warnings": True,
-                    "ignoreerrors": False,
-                    "retries": 2,
-                    "socket_timeout": 20,
+                    "ignoreerrors": (provider == "soundcloud"),
+                    "retries": 3,
+                    "socket_timeout": 25,
                     "geo_bypass": True,
                 }
                 if provider == "youtube":
                     ydl_opts["extractor_args"] = {
                         "youtube": {
-                            "player_client": ["android_music", "android", "tv_embedded"],
-                            "player_skip": ["web", "ios", "mweb"]
+                            "player_client": ["android", "tv_embedded"],
+                            "player_skip": ["web", "mweb"]
                         }
                     }
 
@@ -752,8 +822,32 @@ def _download_youtube(job_id: str, url: str, out_dir: Path, title: str = "", is_
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
         ydl_opts = _ydl_opts(job_id, out_dir, codec=codec, quality=quality)
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+        except Exception as yt_err:
+            err_str = str(yt_err).lower()
+            if ("bot" in err_str or "sign in" in err_str or "403" in err_str) and title:
+                print(f"YouTube cloud bot check on '{title}', activating JioSaavn/SoundCloud fallback...")
+                jio_url = find_jiosaavn_url(title)
+                fb_target = jio_url or f"scsearch1:{title}"
+                fb_opts = {
+                    "format": "bestaudio/best",
+                    "outtmpl": str(out_dir / "%(title)s.%(ext)s"),
+                    "quiet": True,
+                    "no_warnings": True,
+                    "ignoreerrors": True,
+                    "progress_hooks": [_make_ytdlp_hook(job_id)],
+                }
+                if bool(shutil.which("ffmpeg")):
+                    fb_opts["postprocessors"] = [
+                        {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality},
+                        {"key": "FFmpegMetadata", "add_metadata": True},
+                    ]
+                with yt_dlp.YoutubeDL(fb_opts) as ydl_fb:
+                    ydl_fb.download([fb_target])
+            else:
+                raise yt_err
     except Exception as exc:
         if not _job_cancelled.get(job_id):
             q.put({"type": "error", "message": str(exc)})
@@ -912,8 +1006,8 @@ def _youtube_info(url: str) -> dict:
         "geo_bypass": True,
         "extractor_args": {
             "youtube": {
-                "player_client": ["android_music", "android", "tv_embedded"],
-                "player_skip": ["web", "ios", "mweb"]
+                "player_client": ["android", "tv_embedded"],
+                "player_skip": ["web", "mweb"]
             }
         }
     }

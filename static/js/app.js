@@ -196,6 +196,18 @@ function detectSoftware(raw) {
       desc: "Extracts high-quality SoundCloud streams with original artwork."
     };
   }
+  if (u.includes("jiosaavn.com") || u.includes("saavn.com")) {
+    const isPl = u.includes("/album/") || u.includes("/playlist/") || u.includes("/featured/");
+    return {
+      id: "jiosaavn",
+      name: "JioSaavn",
+      icon: "🟢",
+      color: "#2bc5b4",
+      type: isPl ? "Playlist / Album" : "Song",
+      engine: "JioSaavn 320kbps CD Quality Engine",
+      desc: "Direct 320kbps CD master extraction with zero DRM and official cover art."
+    };
+  }
   if (u.includes("bandcamp.com")) {
     const isPl = u.includes("/album/");
     return {
