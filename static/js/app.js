@@ -124,16 +124,27 @@ function detectSoftware(raw) {
   const u = (raw || "").trim().toLowerCase();
   if (!u) return null;
 
-  if (u.includes("spotify.com") || u.includes("spoti.fi") || u.includes("spotify.link")) {
-    const isPl = u.includes("/playlist/") || u.includes("/album/") || u.includes("/artist/");
+  if (
+    u.startsWith("spotify:") ||
+    u.includes("spotify.com") ||
+    u.includes("spoti.fi") ||
+    u.includes("spotify.link") ||
+    /^spotify:(?:track|playlist|album|artist):/i.test(u)
+  ) {
+    const isPl = u.includes("playlist") || u.includes("album") || u.includes("artist");
+    let typeName = "Track";
+    if (u.includes("playlist")) typeName = "Playlist";
+    else if (u.includes("album")) typeName = "Album";
+    else if (u.includes("artist")) typeName = "Artist";
+
     return {
       id: "spotify",
       name: "Spotify",
       icon: "🟢",
       color: "#1DB954",
-      type: isPl ? "Playlist / Album" : "Track",
+      type: isPl ? typeName : "Track",
       engine: "Spotify Dedicated Downloader",
-      desc: "Scrapes official Spotify tracklist & cover art; downloads 320kbps MP3s."
+      desc: "Extracts official Spotify tracklist & high-res artwork; downloads 320kbps MP3s."
     };
   }
   if (u.includes("music.youtube.com")) {
@@ -277,6 +288,26 @@ function onUrlInput() {
     }
   });
 }
+
+// Click on platform chips to get guidance / focus
+document.querySelectorAll(".chip[data-platform]").forEach(c => {
+  c.addEventListener("click", () => {
+    const plat = c.dataset.platform;
+    const hints = {
+      spotify: "Paste Spotify song, album, or playlist link / URI…",
+      youtube: "Paste YouTube video or playlist link…",
+      ytmusic: "Paste YouTube Music link…",
+      soundcloud: "Paste SoundCloud track or set link…",
+      applemusic: "Paste Apple Music album or song link…",
+      bandcamp: "Paste Bandcamp album or track link…"
+    };
+    if (hints[plat]) {
+      urlInput.placeholder = hints[plat];
+      urlInput.focus();
+      toast(`Selected ${c.textContent} engine`, "info", 1800);
+    }
+  });
+});
 
 urlInput.addEventListener("input", onUrlInput);
 urlInput.addEventListener("paste", () => setTimeout(onUrlInput, 50));

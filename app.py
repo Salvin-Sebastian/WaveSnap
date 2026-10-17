@@ -72,10 +72,20 @@ threading.Thread(target=_cleanup_old_files, daemon=True).start()
 
 def resolve_url(url: str) -> str:
     url = url.strip()
+    if not url:
+        return ""
+
+    # Check for Spotify URI scheme (e.g., spotify:track:..., spotify:playlist:...)
+    m_sp_uri = re.search(r'spotify:(track|playlist|album|artist):([a-zA-Z0-9]+)', url, re.IGNORECASE)
+    if m_sp_uri:
+        return f"https://open.spotify.com/{m_sp_uri.group(1).lower()}/{m_sp_uri.group(2)}"
+
     # Extract clean http(s) URL if user pasted text with surrounding words
     m = re.search(r'https?://[^\s"\'<>]+', url)
     if m:
         url = m.group(0)
+    elif any(d in url.lower() for d in ("spotify.com", "spotify.link", "spoti.fi", "youtube.com", "youtu.be", "music.youtube.com", "soundcloud.com", "apple.com", "bandcamp.com")):
+        url = "https://" + url.lstrip("/")
 
     # Resolve shortlinks (spotify.link, spoti.fi, youtu.be, etc.)
     short_domains = ("spotify.link", "spoti.fi", "youtu.be", "tinyurl.com", "bit.ly", "t.co")
@@ -95,18 +105,29 @@ def resolve_url(url: str) -> str:
 
 
 def is_spotify(url: str) -> bool:
-    u = url.lower()
-    return any(k in u for k in ("spotify.com", "open.spotify", "spotify.link", "spoti.fi"))
+    u = url.lower().strip()
+    return (
+        u.startswith("spotify:")
+        or bool(re.search(r'spotify:(?:track|playlist|album|artist):[a-zA-Z0-9]+', u, re.IGNORECASE))
+        or any(k in u for k in ("spotify.com", "open.spotify", "spotify.link", "spoti.fi"))
+    )
 
 
 def get_spotify_id_and_type(url: str) -> tuple[str, str]:
-    """Extract (type, id) from Spotify URL reliably across all formats."""
-    clean = url.split("?")[0].rstrip("/")
+    """Extract (type, id) from Spotify URL or URI reliably across all formats."""
+    # 1. Spotify URI format: spotify:track:4cOdK2wGLETKBW3PvgPWqT
+    m_uri = re.search(r'spotify:(track|playlist|album|artist):([a-zA-Z0-9]+)', url, re.IGNORECASE)
+    if m_uri:
+        return m_uri.group(1).lower(), m_uri.group(2)
+
+    # 2. Web URL format (including /intl-xx/ paths, embed paths, and query parameters)
+    clean = url.split("?")[0].split("#")[0].rstrip("/")
     for t in ("playlist", "album", "track", "artist"):
-        m = re.search(rf'/{t}/([a-zA-Z0-9]+)', clean)
+        m = re.search(rf'/(?:intl-[a-z]{{2,4}}/)?(?:embed/)?{t}/([a-zA-Z0-9]+)', clean, re.IGNORECASE)
         if m:
             return t, m.group(1)
-    parts = clean.split("/")
+
+    parts = [p for p in clean.split("/") if p]
     return ("track", parts[-1]) if parts else ("track", "")
 
 
@@ -124,7 +145,7 @@ def analyze_software_link(raw_input: str) -> dict:
     u = url.lower()
 
     # 1. Spotify
-    if is_spotify(url):
+    if is_spotify(raw_input) or is_spotify(url):
         stype, sid = get_spotify_id_and_type(url)
         is_pl = stype in ("playlist", "album", "artist")
         type_label = "Playlist" if stype == "playlist" else ("Album" if stype == "album" else ("Artist Discography" if stype == "artist" else "Track"))
@@ -444,13 +465,25 @@ def _spotify_info(url: str) -> dict:
                     entity = data.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
                     if entity:
                         title = entity.get("name") or entity.get("title") or "Spotify Audio"
-                        subtitle = entity.get("subtitle") or "Spotify"
+                        
+                        # Extract artist names from entity.artists or subtitle
+                        artists = entity.get("artists", [])
+                        artist_names = ", ".join([a.get("name") for a in artists if a.get("name")]) if artists else ""
+                        subtitle = entity.get("subtitle") or artist_names or "Spotify"
 
-                        # High-resolution cover art
+                        # High-resolution cover art (check visualIdentity.image and coverArt.sources)
                         thumb = ""
-                        covers = entity.get("coverArt", {}).get("sources", [])
-                        if covers:
-                            thumb = covers[0].get("url", "")
+                        images = (
+                            entity.get("visualIdentity", {}).get("image", [])
+                            or entity.get("coverArt", {}).get("sources", [])
+                        )
+                        if images:
+                            images_sorted = sorted(
+                                images,
+                                key=lambda x: (x.get("maxWidth", 0) or x.get("width", 0) or x.get("maxHeight", 0)),
+                                reverse=True
+                            )
+                            thumb = images_sorted[0].get("url", "")
 
                         # Track list
                         raw_tracks = entity.get("trackList", [])
@@ -467,15 +500,20 @@ def _spotify_info(url: str) -> dict:
 
                         # If single track embed without trackList
                         if not is_playlist and not tracks:
-                            tracks = [{"title": title, "artist": subtitle, "duration": entity.get("duration", 0) / 1000 if entity.get("duration") else None}]
+                            tracks = [{
+                                "title": title,
+                                "artist": subtitle,
+                                "duration": entity.get("duration", 0) / 1000 if entity.get("duration") else None
+                            }]
 
                         duration = entity.get("duration", 0) / 1000 if entity.get("duration") else None
                         count = len(tracks) if is_playlist else 1
+                        channel_label = f"{subtitle} · Spotify" if subtitle != "Spotify" else "Spotify"
 
                         return {
                             "title": title,
                             "thumbnail": thumb,
-                            "channel": f"{subtitle} • Spotify",
+                            "channel": channel_label,
                             "is_playlist": is_playlist,
                             "count": count,
                             "duration": duration,
@@ -498,17 +536,20 @@ def _spotify_info(url: str) -> dict:
         resp.raise_for_status()
         data = resp.json()
         title = data.get("title", "Spotify Track")
+        thumb = data.get("thumbnail_url", "")
+        author = data.get("author_name") or data.get("provider_name") or "Spotify"
+        tracks = [{"title": title, "artist": author}] if not is_playlist else []
         return {
             "title": title,
-            "thumbnail": data.get("thumbnail_url", ""),
-            "channel": "Spotify",
+            "thumbnail": thumb,
+            "channel": f"{author} · Spotify" if author != "Spotify" else "Spotify",
             "is_playlist": is_playlist,
             "count": 1 if not is_playlist else None,
             "duration": None,
             "webpage_url": canonical_url,
             "source": "spotify",
             "spotify_type": stype,
-            "tracks": [{"title": title, "artist": "Spotify"}] if not is_playlist else []
+            "tracks": tracks
         }
     except Exception as exc:
         raise Exception(f"Could not fetch Spotify info: {exc}")
@@ -542,104 +583,107 @@ def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", track
                 except Exception:
                     pass
 
-        if tracks:
-            total_tracks = len(tracks)
-            completed_lock = threading.Lock()
-            completed_count = 0
+        if not tracks:
+            q.put({"type": "error", "message": f"No tracks found to download for this {default_source} link. Please verify the link is public."})
+            return
 
-            q.put({
-                "type": "progress",
-                "percent": 0,
-                "speed": "",
-                "filename": f"Starting {default_source} download for {total_tracks} tracks…"
-            })
+        total_tracks = len(tracks)
+        completed_lock = threading.Lock()
+        completed_count = 0
 
-            def download_single_track(idx: int, tr: dict):
+        q.put({
+            "type": "progress",
+            "percent": 0,
+            "speed": "",
+            "filename": f"Starting {default_source} download for {total_tracks} tracks…"
+        })
+
+        def download_single_track(idx: int, tr: dict):
+            if _job_cancelled.get(job_id):
+                return
+            nonlocal completed_count
+            t_title = tr.get("title", "").strip()
+            t_artist = tr.get("artist", "").strip()
+            if not t_title:
+                return
+
+            sanitized_artist = sanitize_folder(t_artist)
+            sanitized_title = sanitize_folder(t_title)
+            base_name = f"{sanitized_artist} - {sanitized_title}"
+
+            target_file = out_dir / f"{base_name}.{codec}"
+            if target_file.exists() and target_file.stat().st_size > 50000:
+                with completed_lock:
+                    completed_count += 1
+                    pct = round((completed_count / total_tracks) * 100, 1)
+                    q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"{base_name}.{codec}"})
+                    q.put({"type": "track_done", "filename": f"{base_name}.{codec}"})
+                return
+
+            query = f"ytsearch1:{t_title} {t_artist} audio"
+            outtmpl = str(out_dir / f"{base_name}.%(ext)s")
+
+            ydl_opts = {
+                "format": "bestaudio/best",
+                "outtmpl": outtmpl,
+                "quiet": True,
+                "no_warnings": True,
+                "ignoreerrors": True,
+                "retries": 3,
+                "socket_timeout": 25,
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "ios", "web"],
+                    }
+                },
+            }
+            if has_ffmpeg:
+                ydl_opts["postprocessors"] = [
+                    {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality},
+                    {"key": "FFmpegMetadata", "add_metadata": True},
+                ]
+
+            try:
                 if _job_cancelled.get(job_id):
                     return
-                nonlocal completed_count
-                t_title = tr.get("title", "").strip()
-                t_artist = tr.get("artist", "").strip()
-                if not t_title:
-                    return
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([query])
 
-                sanitized_artist = sanitize_folder(t_artist)
-                sanitized_title = sanitize_folder(t_title)
-                base_name = f"{sanitized_artist} - {sanitized_title}"
+                # Locate downloaded audio file even if extension was changed by converter
+                actual_file = target_file
+                if not actual_file.exists():
+                    for f in out_dir.iterdir():
+                        if f.is_file() and f.stem == base_name and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"}:
+                            actual_file = f
+                            break
 
-                target_file = out_dir / f"{base_name}.{codec}"
-                if target_file.exists() and target_file.stat().st_size > 50000:
-                    with completed_lock:
-                        completed_count += 1
-                        pct = round((completed_count / total_tracks) * 100, 1)
-                        q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"{base_name}.{codec}"})
-                        q.put({"type": "track_done", "filename": f"{base_name}.{codec}"})
-                    return
+                if actual_file.exists() and not _job_cancelled.get(job_id):
+                    _tag_audio(actual_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url, cover_data=cover_data)
 
-                query = f"ytsearch1:{t_title} {t_artist} audio"
-                outtmpl = str(out_dir / f"{base_name}.%(ext)s")
+                with completed_lock:
+                    completed_count += 1
+                    pct = round((completed_count / total_tracks) * 100, 1)
+                    q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"{base_name}.{codec}"})
+                    q.put({"type": "track_done", "filename": f"{base_name}.{codec}"})
+            except Exception as exc:
+                print(f"Error downloading {base_name}: {exc}")
+                with completed_lock:
+                    completed_count += 1
+                    pct = round((completed_count / total_tracks) * 100, 1)
+                    q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"Skipped: {base_name}"})
 
-                ydl_opts = {
-                    "format": "bestaudio/best",
-                    "outtmpl": outtmpl,
-                    "quiet": True,
-                    "no_warnings": True,
-                    "ignoreerrors": True,
-                    "retries": 3,
-                    "socket_timeout": 25,
-                    "extractor_args": {
-                        "youtube": {
-                            "player_client": ["android", "ios", "web"],
-                        }
-                    },
-                }
-                if has_ffmpeg:
-                    ydl_opts["postprocessors"] = [
-                        {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality},
-                        {"key": "FFmpegMetadata", "add_metadata": True},
-                    ]
-
-                try:
-                    if _job_cancelled.get(job_id):
-                        return
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        ydl.download([query])
-
-                    # Locate downloaded audio file even if extension was changed by converter
-                    actual_file = target_file
-                    if not actual_file.exists():
-                        for f in out_dir.iterdir():
-                            if f.is_file() and f.stem == base_name and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"}:
-                                actual_file = f
-                                break
-
-                    if actual_file.exists() and not _job_cancelled.get(job_id):
-                        _tag_audio(actual_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url, cover_data=cover_data)
-
-                    with completed_lock:
-                        completed_count += 1
-                        pct = round((completed_count / total_tracks) * 100, 1)
-                        q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"{base_name}.{codec}"})
-                        q.put({"type": "track_done", "filename": f"{base_name}.{codec}"})
-                except Exception as exc:
-                    print(f"Error downloading {base_name}: {exc}")
-                    with completed_lock:
-                        completed_count += 1
-                        pct = round((completed_count / total_tracks) * 100, 1)
-                        q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"Skipped: {base_name}"})
-
-            workers = min(3, max(1, total_tracks))
-            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = []
-                for i, tr in enumerate(tracks, 1):
-                    if _job_cancelled.get(job_id):
-                        break
-                    futures.append(executor.submit(download_single_track, i, tr))
-                for fut in concurrent.futures.as_completed(futures):
-                    if _job_cancelled.get(job_id):
-                        for f in futures:
-                            f.cancel()
-                        break
+        workers = min(3, max(1, total_tracks))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = []
+            for i, tr in enumerate(tracks, 1):
+                if _job_cancelled.get(job_id):
+                    break
+                futures.append(executor.submit(download_single_track, i, tr))
+            for fut in concurrent.futures.as_completed(futures):
+                if _job_cancelled.get(job_id):
+                    for f in futures:
+                        f.cancel()
+                    break
     except Exception as exc:
         if not _job_cancelled.get(job_id):
             q.put({"type": "error", "message": str(exc)})
