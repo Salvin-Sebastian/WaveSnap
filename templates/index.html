@@ -166,12 +166,40 @@
 
     <!-- ══ Downloaded Files ══ -->
     <section id="files-section" class="files-card hidden">
+      <!-- Direct Save Hero Banner -->
+      <div id="save-hero" class="save-hero-banner">
+        <div class="save-hero-content">
+          <div class="save-hero-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </div>
+          <div class="save-hero-text">
+            <div id="save-hero-badge" class="save-hero-badge">Download Complete</div>
+            <h3 id="save-hero-headline" class="save-hero-headline">Saved to your device</h3>
+            <p id="save-hero-sub" class="save-hero-sub">If your download didn't start automatically, tap the button to save directly to your Downloads folder.</p>
+          </div>
+        </div>
+        <div class="save-hero-actions">
+          <button id="hero-dl-btn" class="btn btn-save-hero" aria-label="Save to device">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span id="hero-dl-text">Save to Device</span>
+          </button>
+        </div>
+      </div>
+
       <div class="files-head">
         <h2 class="section-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
           </svg>
-          <span id="files-title">Ready to Save</span>
+          <span id="files-title">All Files</span>
         </h2>
         <div class="files-actions">
           <button id="dl-zip-btn" class="btn btn-sm btn-primary hidden">Download as ZIP (.zip)</button>

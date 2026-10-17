@@ -49,6 +49,13 @@ const dlAllBtn    = $("dl-all-btn");
 const dlZipBtn    = $("dl-zip-btn");
 const dlCoverBtn  = $("dl-cover-btn");
 
+const saveHero         = $("save-hero");
+const saveHeroBadge    = $("save-hero-badge");
+const saveHeroHeadline = $("save-hero-headline");
+const saveHeroSub      = $("save-hero-sub");
+const heroDlBtn        = $("hero-dl-btn");
+const heroDlText       = $("hero-dl-text");
+
 const histSect    = $("history-section");
 const histList    = $("history-list");
 const toasts      = $("toasts");
@@ -326,9 +333,40 @@ async function loadFiles(outDir) {
     filesSection.classList.remove("hidden");
     fileList.innerHTML = "";
 
+    const totalSizeStr = data.total_size ? ` (${fmtBytes(data.total_size)})` : "";
+    const zipTitle = state.currentInfo ? (state.currentInfo.title || data.folder || "Playlist") : (data.folder || "Playlist");
+
+    // ── Setup Direct Save Hero Banner ──
+    if (saveHero) {
+      if (files.length === 1) {
+        const singleExt = (files[0].name.split('.').pop() || "mp3").toUpperCase();
+        if (saveHeroBadge) saveHeroBadge.textContent = "Song Ready";
+        if (saveHeroHeadline) saveHeroHeadline.textContent = `Saved to your device (${singleExt})`;
+        if (saveHeroSub) saveHeroSub.textContent = `Your song "${files[0].name}" has been prepared. If your download hasn't started automatically, tap below.`;
+        if (heroDlText) heroDlText.textContent = `Save Song to Device (${singleExt} · ${fmtBytes(files[0].size)})`;
+        if (heroDlBtn) heroDlBtn.onclick = () => triggerSave(files[0].rel, files[0].name);
+
+        // Auto-trigger browser download to device for single song
+        triggerSave(files[0].rel, files[0].name);
+        toast(`Saving "${files[0].name}" to your Downloads folder…`, "success", 4000);
+      } else {
+        if (saveHeroBadge) saveHeroBadge.textContent = `Playlist Ready (${files.length} Songs)`;
+        if (saveHeroHeadline) saveHeroHeadline.textContent = `Saved to your Downloads folder (.ZIP)`;
+        if (saveHeroSub) saveHeroSub.textContent = `All ${files.length} songs and album art are packaged in "${zipTitle}.zip". If your download hasn't started, tap below.`;
+        if (heroDlText) heroDlText.textContent = `Save All to Device (.ZIP${totalSizeStr})`;
+        if (heroDlBtn) heroDlBtn.onclick = () => triggerZipDownload(data.folder, zipTitle);
+
+        // Auto-trigger browser download to device for playlist ZIP
+        if (data.folder) {
+          triggerZipDownload(data.folder, zipTitle);
+          toast(`Saving "${zipTitle}.zip" to your Downloads folder…`, "success", 5000);
+        }
+      }
+    }
+
     if (filesTitle) {
       const sizeStr = data.total_size ? ` · ${fmtBytes(data.total_size)}` : "";
-      filesTitle.textContent = `Ready to Save (${files.length} ${files.length === 1 ? "song" : "songs"}${sizeStr})`;
+      filesTitle.textContent = `All Files (${files.length} ${files.length === 1 ? "song" : "songs"}${sizeStr})`;
     }
 
     files.forEach((f, i) => {
@@ -391,8 +429,7 @@ async function loadFiles(outDir) {
         const zipSizeStr = data.total_size ? ` (${fmtBytes(data.total_size)})` : ` (${files.length} songs)`;
         dlZipBtn.textContent = `Download as ZIP${zipSizeStr}`;
         dlZipBtn.onclick = () => {
-          const zipTitle = state.currentInfo ? (state.currentInfo.title || data.folder) : data.folder;
-          window.location.href = `/api/download-zip?folder=${encodeURIComponent(data.folder)}&title=${encodeURIComponent(zipTitle)}`;
+          triggerZipDownload(data.folder, zipTitle);
         };
       }
     } else {
@@ -403,7 +440,7 @@ async function loadFiles(outDir) {
     if (files.length > 1) {
       dlAllBtn.classList.remove("hidden");
       dlAllBtn.onclick = () => {
-        files.forEach((f, i) => setTimeout(() => triggerSave(f.rel, f.name), i * 250));
+        files.forEach((f, i) => setTimeout(() => triggerSave(f.rel, f.name), i * 350));
       };
     } else {
       dlAllBtn.classList.add("hidden");
@@ -414,12 +451,26 @@ async function loadFiles(outDir) {
 }
 
 function triggerSave(rel, name) {
+  const url = `/api/download-file?path=${encodeURIComponent(rel)}&name=${encodeURIComponent(name || "")}`;
+  triggerBrowserDownload(url, name);
+}
+
+function triggerZipDownload(folder, title) {
+  const zipTitle = title || folder;
+  const url = `/api/download-zip?folder=${encodeURIComponent(folder)}&title=${encodeURIComponent(zipTitle)}`;
+  triggerBrowserDownload(url, `${zipTitle}.zip`);
+}
+
+function triggerBrowserDownload(url, filename) {
   const a = document.createElement("a");
-  a.href = `/api/download-file?path=${encodeURIComponent(rel)}`;
-  a.download = name;
+  a.href = url;
+  if (filename) a.setAttribute("download", filename);
+  a.style.display = "none";
   document.body.appendChild(a);
   a.click();
-  a.remove();
+  setTimeout(() => {
+    if (a.parentNode) a.parentNode.removeChild(a);
+  }, 2000);
 }
 
 // ── History ──────────────────────────────────────────────────

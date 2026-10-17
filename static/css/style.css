@@ -510,6 +510,104 @@ body {
 
 /* ── Files card ─────────────────────────────────────────────── */
 .files-card { padding: 20px; animation: rise 0.35s ease both; }
+
+/* ── Save Hero Banner ───────────────────────────────────────── */
+.save-hero-banner {
+  background: linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(6,182,212,0.1) 100%);
+  border: 1.5px solid rgba(16,185,129,0.35);
+  border-radius: var(--r-md);
+  padding: 18px 20px;
+  margin-bottom: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 4px 20px rgba(16,185,129,0.12);
+}
+@media (min-width: 640px) {
+  .save-hero-banner {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+.save-hero-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.save-hero-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(16,185,129,0.35);
+}
+.save-hero-icon svg {
+  width: 24px;
+  height: 24px;
+}
+.save-hero-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(16,185,129,0.22);
+  border: 1px solid rgba(16,185,129,0.4);
+  color: #34d399;
+  border-radius: var(--r-pill);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+.save-hero-headline {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 3px;
+}
+.save-hero-sub {
+  font-size: 0.8rem;
+  color: var(--c-muted);
+  line-height: 1.4;
+}
+.save-hero-actions {
+  flex-shrink: 0;
+}
+.btn-save-hero {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 13px 20px;
+  border-radius: var(--r-md);
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #fff;
+  font-size: 0.92rem;
+  font-weight: 800;
+  box-shadow: 0 4px 18px rgba(16,185,129,0.4);
+  cursor: pointer;
+  border: none;
+  transition: transform var(--t), box-shadow var(--t);
+  width: 100%;
+}
+@media (min-width: 640px) {
+  .btn-save-hero {
+    width: auto;
+  }
+}
+.btn-save-hero:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(16,185,129,0.55);
+}
+.btn-save-hero:active {
+  transform: translateY(0);
+}
+
 .files-head {
   display: flex;
   align-items: center;

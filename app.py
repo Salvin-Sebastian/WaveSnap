@@ -544,13 +544,9 @@ def start_download():
 
     job_id = str(uuid.uuid4())
 
-    # Folder logic: playlists get a named subfolder; singles go flat
-    if is_playlist:
-        folder_name = sanitize_folder(info_title) if info_title else job_id
-        out_dir = BASE_DIR / folder_name
-    else:
-        out_dir = BASE_DIR
-
+    # Folder logic: each download job gets its own isolated directory
+    folder_name = sanitize_folder(info_title) if info_title else job_id
+    out_dir = BASE_DIR / folder_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
     q: queue.Queue = queue.Queue()
@@ -590,7 +586,7 @@ def start_download():
     return jsonify({
         "job_id": job_id,
         "out_dir": str(out_dir),
-        "folder": out_dir.name if is_playlist else None,
+        "folder": folder_name,
     })
 
 
@@ -627,11 +623,11 @@ def files_for_job():
     out_dir     = Path(out_dir_str) if out_dir_str else BASE_DIR
 
     if not out_dir.exists():
-        return jsonify({"files": [], "folder": "", "cover": ""})
+        return jsonify({"files": [], "folder": "", "cover": "", "total_size": 0})
 
     audio_exts = {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"}
     files = []
-    is_folder = out_dir != BASE_DIR
+    is_folder = out_dir.resolve() != BASE_DIR.resolve()
     folder_name = out_dir.name if is_folder else ""
 
     cover_rel = ""
@@ -659,28 +655,46 @@ def files_for_job():
 
 @app.route("/api/download-file")
 def download_file():
-    rel = request.args.get("path", "")
+    rel = request.args.get("path", "").strip()
     if not rel or ".." in rel:
         return "Invalid path", 400
-    full = BASE_DIR / rel
-    if not full.exists():
+    full = (BASE_DIR / rel).resolve()
+    try:
+        full.relative_to(BASE_DIR.resolve())
+    except ValueError:
+        return "Access denied", 403
+
+    if not full.exists() or not full.is_file():
         return "File not found", 404
-    return send_from_directory(str(full.parent.resolve()), full.name, as_attachment=True)
+
+    custom_name = request.args.get("name", "").strip() or full.name
+    return send_from_directory(
+        str(full.parent),
+        full.name,
+        as_attachment=True,
+        download_name=custom_name
+    )
 
 
 @app.route("/api/download-zip")
 def download_zip():
     folder = request.args.get("folder", "").strip()
     title  = request.args.get("title", folder).strip()
-    if not folder or ".." in folder or "/" in folder or "\\" in folder:
+    if not folder or ".." in folder:
         return "Invalid folder", 400
 
-    target_dir = BASE_DIR / folder
+    target_dir = (BASE_DIR / folder).resolve()
+    try:
+        target_dir.relative_to(BASE_DIR.resolve())
+    except ValueError:
+        return "Access denied", 403
+
     if not target_dir.exists() or not target_dir.is_dir():
         return "Folder not found", 404
 
-    zip_filename = f"{sanitize_folder(title or folder)}.zip"
-    zip_path = BASE_DIR / f"{folder}.zip"
+    clean_title = sanitize_folder(title or folder)
+    zip_filename = f"{clean_title}.zip"
+    zip_path = BASE_DIR / f"{sanitize_folder(folder)}.zip"
 
     valid_exts = {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac", ".jpg", ".jpeg", ".png"}
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
