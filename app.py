@@ -127,6 +127,11 @@ def _ydl_opts(job_id: str, out_dir: Path, codec: str = "mp3", quality: str = "32
         "quiet": True,
         "no_warnings": True,
         "progress_hooks": [_make_ytdlp_hook(job_id)],
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "web"],
+            }
+        },
     }
     if has_ffmpeg:
         opts["postprocessors"] = [
@@ -139,8 +144,16 @@ def _ydl_opts(job_id: str, out_dir: Path, codec: str = "mp3", quality: str = "32
 
 # ── Metadata tagging via mutagen (MP3 & M4A/AAC) ──────────────────────────────
 
-def _tag_audio(file_path: Path, title: str, artist: str, album: str = "", cover_url: str = ""):
+def _tag_audio(file_path: Path, title: str, artist: str, album: str = "", cover_url: str = "", cover_data: bytes = None):
     try:
+        if not cover_data and cover_url:
+            try:
+                resp = http_requests.get(cover_url, timeout=5)
+                if resp.status_code == 200:
+                    cover_data = resp.content
+            except Exception:
+                pass
+
         ext = file_path.suffix.lower()
         if ext == ".mp3":
             from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC, ID3NoHeaderError
@@ -156,17 +169,15 @@ def _tag_audio(file_path: Path, title: str, artist: str, album: str = "", cover_
                 audio.tags.add(TPE1(encoding=3, text=artist))
             if album:
                 audio.tags.add(TALB(encoding=3, text=album))
-            if cover_url:
+            if cover_data:
                 try:
-                    resp = http_requests.get(cover_url, timeout=5)
-                    if resp.status_code == 200:
-                        audio.tags.add(APIC(
-                            encoding=3,
-                            mime="image/jpeg",
-                            type=3,
-                            desc="Cover",
-                            data=resp.content
-                        ))
+                    audio.tags.add(APIC(
+                        encoding=3,
+                        mime="image/jpeg",
+                        type=3,
+                        desc="Cover",
+                        data=cover_data
+                    ))
                 except Exception:
                     pass
             audio.save()
@@ -180,18 +191,15 @@ def _tag_audio(file_path: Path, title: str, artist: str, album: str = "", cover_
                 audio["\xa9ART"] = [artist]
             if album:
                 audio["\xa9alb"] = [album]
-            if cover_url:
+            if cover_data:
                 try:
-                    resp = http_requests.get(cover_url, timeout=5)
-                    if resp.status_code == 200:
-                        fmt = MP4Cover.FORMAT_JPEG if (b"JFIF" in resp.content[:20] or b"\xff\xd8" in resp.content[:4]) else MP4Cover.FORMAT_PNG
-                        audio["covr"] = [MP4Cover(resp.content, imageformat=fmt)]
+                    fmt = MP4Cover.FORMAT_JPEG if (b"JFIF" in cover_data[:20] or b"\xff\xd8" in cover_data[:4]) else MP4Cover.FORMAT_PNG
+                    audio["covr"] = [MP4Cover(cover_data, imageformat=fmt)]
                 except Exception:
                     pass
             audio.save()
 
     except Exception as exc:
-        print(f"Error tagging {file_path}: {exc}")
         print(f"Error tagging {file_path}: {exc}")
 
 
@@ -310,7 +318,8 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                 print(f"Failed to fetch Spotify tracks for download: {e}")
                 tracks = []
 
-        # Always save the high-res cover image file in the directory
+        # Always save the high-res cover image file in the directory and cache bytes
+        cover_data = None
         if cover_url:
             cover_path = out_dir / "cover.jpg"
             if not cover_path.exists():
@@ -318,8 +327,14 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                     c_resp = http_requests.get(cover_url, timeout=10)
                     if c_resp.status_code == 200:
                         cover_path.write_bytes(c_resp.content)
+                        cover_data = c_resp.content
                 except Exception as e:
                     print(f"Error saving cover.jpg: {e}")
+            else:
+                try:
+                    cover_data = cover_path.read_bytes()
+                except Exception:
+                    pass
 
         # If we have the track list, download each track at chosen quality in parallel!
         if tracks:
@@ -366,6 +381,11 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                     "ignoreerrors": True,
                     "retries": 3,
                     "socket_timeout": 25,
+                    "extractor_args": {
+                        "youtube": {
+                            "player_client": ["android", "ios", "web"],
+                        }
+                    },
                 }
                 if has_ffmpeg:
                     ydl_opts["postprocessors"] = [
@@ -377,9 +397,9 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         ydl.download([query])
 
-                    # Tag the audio with official metadata
+                    # Tag the audio with official metadata and cached cover
                     if target_file.exists():
-                        _tag_audio(target_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url)
+                        _tag_audio(target_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url, cover_data=cover_data)
 
                     with completed_lock:
                         completed_count += 1
@@ -512,6 +532,7 @@ def start_download():
     is_playlist = bool(data.get("is_playlist"))
     source      = data.get("source", "ytdlp")
     tracks      = data.get("tracks", [])
+    cover_url   = (data.get("thumbnail") or data.get("cover_url") or "").strip()
     quality_param = data.get("quality", "mp3_320")
     if "_" in quality_param:
         codec, quality = quality_param.split("_", 1)
@@ -537,27 +558,32 @@ def start_download():
         _job_queues[job_id] = q
 
     def run():
-        # Always attempt to save the cover image file in the download directory
-        if cover_url:
-            cover_path = out_dir / "cover.jpg"
-            if not cover_path.exists():
-                try:
-                    c_resp = http_requests.get(cover_url, timeout=10)
-                    if c_resp.status_code == 200:
-                        cover_path.write_bytes(c_resp.content)
-                except Exception as e:
-                    print(f"Error saving cover.jpg: {e}")
+        try:
+            # Always attempt to save the cover image file in the download directory
+            if cover_url:
+                cover_path = out_dir / "cover.jpg"
+                if not cover_path.exists():
+                    try:
+                        c_resp = http_requests.get(cover_url, timeout=10)
+                        if c_resp.status_code == 200:
+                            cover_path.write_bytes(c_resp.content)
+                    except Exception as e:
+                        print(f"Error saving cover.jpg: {e}")
 
-        if source == "spotify" or is_spotify(url):
-            _download_spotify(job_id, url, out_dir, title=info_title, tracks=tracks, cover_url=cover_url, codec=codec, quality=quality)
-        else:
-            try:
-                with yt_dlp.YoutubeDL(_ydl_opts(job_id, out_dir, codec=codec, quality=quality)) as ydl:
-                    ydl.download([url])
-            except Exception as exc:
-                q.put({"type": "error", "message": str(exc)})
-            finally:
-                q.put({"type": "done", "out_dir": str(out_dir)})
+            if source == "spotify" or is_spotify(url):
+                _download_spotify(job_id, url, out_dir, title=info_title, tracks=tracks, cover_url=cover_url, codec=codec, quality=quality)
+            else:
+                try:
+                    with yt_dlp.YoutubeDL(_ydl_opts(job_id, out_dir, codec=codec, quality=quality)) as ydl:
+                        ydl.download([url])
+                except Exception as exc:
+                    q.put({"type": "error", "message": str(exc)})
+                finally:
+                    q.put({"type": "done", "out_dir": str(out_dir)})
+        except Exception as exc:
+            print(f"Download thread exception: {exc}")
+            q.put({"type": "error", "message": str(exc)})
+            q.put({"type": "done", "out_dir": str(out_dir)})
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -582,7 +608,7 @@ def progress_stream(job_id: str):
             try:
                 msg = q.get(timeout=30)
                 yield f"data: {json.dumps(msg)}\n\n"
-                if msg.get("type") in ("done", "error"):
+                if msg.get("type") == "done":
                     break
             except queue.Empty:
                 yield 'data: {"type":"ping"}\n\n'
@@ -612,7 +638,7 @@ def files_for_job():
     for img_name in ("cover.jpg", "cover.png", "cover.jpeg"):
         img_path = out_dir / img_name
         if img_path.exists() and img_path.stat().st_size > 500:
-            cover_rel = str(img_path.relative_to(BASE_DIR))
+            cover_rel = str(img_path.relative_to(BASE_DIR)).replace("\\", "/")
             break
 
     for path in sorted(out_dir.iterdir()):
@@ -620,7 +646,7 @@ def files_for_job():
             files.append({
                 "name":   path.name,
                 "size":   path.stat().st_size,
-                "rel":    str(path.relative_to(BASE_DIR)),
+                "rel":    str(path.relative_to(BASE_DIR)).replace("\\", "/"),
                 "folder": folder_name,
             })
     return jsonify({
