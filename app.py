@@ -28,6 +28,22 @@ try:
 except Exception as _e:
     print(f"static_ffmpeg note: {_e}")
 
+FFMPEG_PATH = shutil.which("ffmpeg")
+FFPROBE_PATH = shutil.which("ffprobe")
+FFMPEG_DIR = str(Path(FFMPEG_PATH).parent) if FFMPEG_PATH else None
+
+# Check for user-provided YouTube cookies (via cookies.txt or YOUTUBE_COOKIES env var)
+COOKIE_FILE = None
+if os.path.exists("cookies.txt"):
+    COOKIE_FILE = "cookies.txt"
+elif os.environ.get("YOUTUBE_COOKIES"):
+    try:
+        _c_path = Path(tempfile.gettempdir()) / "wavesnap_cookies.txt"
+        _c_path.write_text(os.environ["YOUTUBE_COOKIES"].strip(), encoding="utf-8")
+        COOKIE_FILE = str(_c_path)
+    except Exception as _ce:
+        print(f"Cookie env setup note: {_ce}")
+
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
 # ── Storage ───────────────────────────────────────────────────────────────────
@@ -451,7 +467,8 @@ def _make_ytdlp_hook(job_id: str, out_dir: Path = None):
 
 
 def _ydl_opts(job_id: str, out_dir: Path, codec: str = "mp3", quality: str = "320") -> dict:
-    has_ffmpeg = bool(shutil.which("ffmpeg"))
+    has_ffmpeg = bool(FFMPEG_PATH or shutil.which("ffmpeg"))
+    ffmpeg_loc = FFMPEG_DIR or (str(Path(shutil.which("ffmpeg")).parent) if shutil.which("ffmpeg") else None)
     opts = {
         "format": "bestaudio/best",
         "outtmpl": str(out_dir / "%(title)s.%(ext)s"),
@@ -469,14 +486,18 @@ def _ydl_opts(job_id: str, out_dir: Path, codec: str = "mp3", quality: str = "32
         "geo_bypass": True,
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "tv_embedded"],
-                "player_skip": ["web", "mweb"]
+                "player_client": ["android", "ios", "visionos"],
+                "player_skip": ["web", "mweb", "tv"]
             }
         },
     }
+    if ffmpeg_loc:
+        opts["ffmpeg_location"] = ffmpeg_loc
+    if COOKIE_FILE:
+        opts["cookiefile"] = COOKIE_FILE
     if has_ffmpeg:
         opts["postprocessors"] = [
-            {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality},
+            {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality, "nopostoverwrites": False},
             {"key": "FFmpegMetadata", "add_metadata": True},
             {"key": "EmbedThumbnail"},
         ]
@@ -665,18 +686,26 @@ def find_jiosaavn_url(title: str, artist: str = "") -> str | None:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
     }
-    clean_title = re.sub(r'\(.*?\)|\[.*?\]', '', title).strip()
-    clean_artist = artist.split(",")[0].split("&")[0].strip() if artist else ""
+    # 1. Clean brackets and markdown/quote symbols
+    t_clean = re.sub(r'\(.*?\)|\[.*?\]', '', title)
+    t_clean = re.sub(r'[\"_~*]', ' ', t_clean)
+    # 2. Extract core title by cutting off " - From ...", " - OST", " - Remastered", " - Theme", etc.
+    t_core = re.split(r'\s+[-–—]\s+(?:from|ost|original|remaster|feat|bonus|theme|soundtrack)', t_clean, flags=re.IGNORECASE)[0].strip()
+    t_core_pure = t_core.split("-")[0].strip()
+
+    clean_artist = artist.split(",")[0].split("&")[0].split("feat.")[0].strip() if artist else ""
 
     queries = []
-    if clean_title and clean_artist:
-        queries.append(f"{clean_title} {clean_artist}")
-    if title and artist and f"{title} {artist}" not in queries:
-        queries.append(f"{title} {artist}")
-    if clean_title and clean_title not in queries:
-        queries.append(clean_title)
-    if title and title not in queries:
-        queries.append(title)
+    if t_core_pure and clean_artist:
+        queries.append(f"{t_core_pure} {clean_artist}")
+    if t_core and clean_artist and f"{t_core} {clean_artist}" not in queries:
+        queries.append(f"{t_core} {clean_artist}")
+    if t_core_pure and t_core_pure not in queries:
+        queries.append(t_core_pure)
+    if clean_artist and f"{t_clean.strip()} {clean_artist}" not in queries:
+        queries.append(f"{t_clean.strip()} {clean_artist}")
+    if t_clean.strip() and t_clean.strip() not in queries:
+        queries.append(t_clean.strip())
 
     for q in queries:
         try:
@@ -854,12 +883,19 @@ def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", track
                     if jio_url:
                         search_targets.append(("jiosaavn", jio_url))
 
-                    clean_title = re.sub(r'\(.*?\)|\[.*?\]', '', t_title).strip()
-                    search_targets.append(("youtube", f"ytsearch1:{clean_title} {t_artist} audio"))
-                    search_targets.append(("soundcloud", f"scsearch1:{clean_title} {t_artist}"))
+                    # Clean query strings for fallback searches
+                    clean_t = re.sub(r'\(.*?\)|\[.*?\]', '', t_title)
+                    clean_t = re.split(r'\s+[-–—]\s+(?:from|ost|original|remaster|feat|bonus|theme|soundtrack)', clean_t, flags=re.IGNORECASE)[0].strip()
+                    clean_a = t_artist.split(",")[0].split("&")[0].strip() if t_artist else ""
+
+                    search_targets.append(("youtube_music", f"ytsearch1:{clean_t} {clean_a} audio"))
+                    search_targets.append(("youtube", f"ytsearch1:{clean_t} {clean_a}"))
+                    search_targets.append(("soundcloud", f"scsearch1:{clean_t} {clean_a}"))
 
                     # Slight thread staggering to prevent cloud bursting
                     time.sleep(min(idx * 0.12, 1.0))
+
+                    ffmpeg_loc = FFMPEG_DIR or (str(Path(shutil.which("ffmpeg")).parent) if shutil.which("ffmpeg") else None)
 
                     for provider, target in search_targets:
                         if _job_cancelled.get(job_id) or success:
@@ -871,46 +907,51 @@ def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", track
                             "quiet": True,
                             "no_warnings": True,
                             "ignoreerrors": True,
-                            "retries": 1,
-                            "socket_timeout": 12,
+                            "retries": 2,
+                            "socket_timeout": 15,
                             "geo_bypass": True,
                         }
-                        if provider == "youtube":
+                        if ffmpeg_loc:
+                            ydl_opts["ffmpeg_location"] = ffmpeg_loc
+                        if COOKIE_FILE:
+                            ydl_opts["cookiefile"] = COOKIE_FILE
+
+                        if "youtube" in provider:
                             ydl_opts["extractor_args"] = {
                                 "youtube": {
-                                    "player_client": ["android", "tv_embedded"],
-                                    "player_skip": ["web", "mweb"]
+                                    "player_client": ["android", "ios", "visionos"],
+                                    "player_skip": ["web", "mweb", "tv"]
                                 }
                             }
 
                         if has_ffmpeg:
                             ydl_opts["postprocessors"] = [
-                                {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality},
+                                {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality, "nopostoverwrites": False},
                                 {"key": "FFmpegMetadata", "add_metadata": True},
                             ]
 
                         try:
                             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                                 ydl.download([target])
-
-                            actual_file = target_file
-                            if not actual_file.exists():
-                                for f in out_dir.iterdir():
-                                    if f.is_file() and f.stem == base_name and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"}:
-                                        actual_file = f
-                                        break
-
-                            if actual_file.exists() and actual_file.stat().st_size > 30000:
-                                success = True
-                                if not _job_cancelled.get(job_id):
-                                    try:
-                                        _tag_audio(actual_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url, cover_data=cover_data)
-                                    except Exception:
-                                        pass
-                                break
                         except Exception as exc:
-                            print(f"[{provider}] Skipped attempt on '{base_name}': {exc}")
-                            continue
+                            print(f"[{provider}] Download note on '{base_name}': {exc}")
+
+                        # Check if audio file was saved on disk (even if post-processing had warnings)
+                        actual_file = target_file
+                        if not actual_file.exists() and out_dir.exists():
+                            for f in out_dir.iterdir():
+                                if f.is_file() and (f.stem == base_name or base_name in f.stem) and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"} and f.stat().st_size > 25000:
+                                    actual_file = f
+                                    break
+
+                        if actual_file.exists() and actual_file.stat().st_size > 25000:
+                            success = True
+                            if not _job_cancelled.get(job_id):
+                                try:
+                                    _tag_audio(actual_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url, cover_data=cover_data)
+                                except Exception:
+                                    pass
+                            break
 
                 if not success:
                     print(f"[SKIP] Song '{base_name}' could not be downloaded from any source. Skipping to next song.")
@@ -1036,6 +1077,7 @@ def _download_youtube(job_id: str, url: str, out_dir: Path, title: str = "", is_
                 print(f"YouTube cloud bot check on '{title}', activating JioSaavn/SoundCloud fallback...")
                 jio_url = find_jiosaavn_url(title)
                 fb_target = jio_url or f"scsearch1:{title}"
+                ffmpeg_loc = FFMPEG_DIR or (str(Path(shutil.which("ffmpeg")).parent) if shutil.which("ffmpeg") else None)
                 fb_opts = {
                     "format": "bestaudio/best",
                     "outtmpl": str(out_dir / "%(title)s.%(ext)s"),
@@ -1044,9 +1086,13 @@ def _download_youtube(job_id: str, url: str, out_dir: Path, title: str = "", is_
                     "ignoreerrors": True,
                     "progress_hooks": [_make_ytdlp_hook(job_id, out_dir)],
                 }
-                if bool(shutil.which("ffmpeg")):
+                if ffmpeg_loc:
+                    fb_opts["ffmpeg_location"] = ffmpeg_loc
+                if COOKIE_FILE:
+                    fb_opts["cookiefile"] = COOKIE_FILE
+                if bool(FFMPEG_PATH or shutil.which("ffmpeg")):
                     fb_opts["postprocessors"] = [
-                        {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality},
+                        {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality, "nopostoverwrites": False},
                         {"key": "FFmpegMetadata", "add_metadata": True},
                     ]
                 with yt_dlp.YoutubeDL(fb_opts) as ydl_fb:
