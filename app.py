@@ -365,9 +365,11 @@ def _ydl_opts(job_id: str, out_dir: Path, codec: str = "mp3", quality: str = "32
         "quiet": True,
         "no_warnings": True,
         "progress_hooks": [_make_ytdlp_hook(job_id)],
+        "geo_bypass": True,
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "ios", "web"],
+                "player_client": ["android_music", "android", "tv_embedded"],
+                "player_skip": ["web", "ios", "mweb"]
             }
         },
     }
@@ -620,56 +622,75 @@ def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", track
                     q.put({"type": "track_done", "filename": f"{base_name}.{codec}"})
                 return
 
-            query = f"ytsearch1:{t_title} {t_artist} audio"
             outtmpl = str(out_dir / f"{base_name}.%(ext)s")
 
-            ydl_opts = {
-                "format": "bestaudio/best",
-                "outtmpl": outtmpl,
-                "quiet": True,
-                "no_warnings": True,
-                "ignoreerrors": True,
-                "retries": 3,
-                "socket_timeout": 25,
-                "extractor_args": {
-                    "youtube": {
-                        "player_client": ["android", "ios", "web"],
+            # Fallback search pipeline:
+            # 1. YouTube Music via Android Music & TV clients (bypasses web bot-detection)
+            # 2. General YouTube search with android client
+            # 3. SoundCloud search (never blocks datacenter IPs)
+            search_targets = [
+                ("youtube", f"ytsearch1:{t_title} {t_artist} audio"),
+                ("youtube", f"ytsearch1:{t_title} {t_artist}"),
+                ("soundcloud", f"scsearch1:{t_title} {t_artist}"),
+            ]
+
+            success = False
+            for provider, target in search_targets:
+                if _job_cancelled.get(job_id) or success:
+                    break
+
+                ydl_opts = {
+                    "format": "bestaudio/best",
+                    "outtmpl": outtmpl,
+                    "quiet": True,
+                    "no_warnings": True,
+                    "ignoreerrors": False,
+                    "retries": 2,
+                    "socket_timeout": 20,
+                    "geo_bypass": True,
+                }
+                if provider == "youtube":
+                    ydl_opts["extractor_args"] = {
+                        "youtube": {
+                            "player_client": ["android_music", "android", "tv_embedded"],
+                            "player_skip": ["web", "ios", "mweb"]
+                        }
                     }
-                },
-            }
-            if has_ffmpeg:
-                ydl_opts["postprocessors"] = [
-                    {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality},
-                    {"key": "FFmpegMetadata", "add_metadata": True},
-                ]
 
-            try:
-                if _job_cancelled.get(job_id):
-                    return
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([query])
+                if has_ffmpeg:
+                    ydl_opts["postprocessors"] = [
+                        {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality},
+                        {"key": "FFmpegMetadata", "add_metadata": True},
+                    ]
 
-                # Locate downloaded audio file even if extension was changed by converter
-                actual_file = target_file
-                if not actual_file.exists():
-                    for f in out_dir.iterdir():
-                        if f.is_file() and f.stem == base_name and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"}:
-                            actual_file = f
-                            break
+                try:
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        ydl.download([target])
 
-                if actual_file.exists() and not _job_cancelled.get(job_id):
-                    _tag_audio(actual_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url, cover_data=cover_data)
+                    # Locate downloaded audio file even if extension was changed by converter
+                    actual_file = target_file
+                    if not actual_file.exists():
+                        for f in out_dir.iterdir():
+                            if f.is_file() and f.stem == base_name and f.suffix.lower() in {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"}:
+                                actual_file = f
+                                break
 
-                with completed_lock:
-                    completed_count += 1
-                    pct = round((completed_count / total_tracks) * 100, 1)
+                    if actual_file.exists() and actual_file.stat().st_size > 30000:
+                        success = True
+                        if not _job_cancelled.get(job_id):
+                            _tag_audio(actual_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url, cover_data=cover_data)
+                        break
+                except Exception as exc:
+                    print(f"[{provider}] Download failed for '{base_name}': {exc}")
+                    continue
+
+            with completed_lock:
+                completed_count += 1
+                pct = round((completed_count / total_tracks) * 100, 1)
+                if success:
                     q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"{base_name}.{codec}"})
                     q.put({"type": "track_done", "filename": f"{base_name}.{codec}"})
-            except Exception as exc:
-                print(f"Error downloading {base_name}: {exc}")
-                with completed_lock:
-                    completed_count += 1
-                    pct = round((completed_count / total_tracks) * 100, 1)
+                else:
                     q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"Skipped: {base_name}"})
 
         workers = min(3, max(1, total_tracks))
@@ -888,10 +909,11 @@ def _youtube_info(url: str) -> dict:
         "no_warnings": True,
         "ignoreerrors": False,
         "extract_flat": "in_playlist",
-        "socket_timeout": 20,
+        "geo_bypass": True,
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "ios", "web"],
+                "player_client": ["android_music", "android", "tv_embedded"],
+                "player_skip": ["web", "ios", "mweb"]
             }
         }
     }
