@@ -47,6 +47,7 @@ const filesTitle  = $("files-title");
 const fileList    = $("file-list");
 const dlAllBtn    = $("dl-all-btn");
 const dlZipBtn    = $("dl-zip-btn");
+const dlCoverBtn  = $("dl-cover-btn");
 
 const histSect    = $("history-section");
 const histList    = $("history-list");
@@ -330,11 +331,15 @@ async function loadFiles(outDir) {
       const item = document.createElement("div");
       item.className = "file-item";
       item.style.animationDelay = `${i * 0.05}s`;
+      const thumbContent = (state.currentInfo && state.currentInfo.thumbnail)
+        ? `<img src="${esc(state.currentInfo.thumbnail)}" alt="Cover" class="file-thumb-img" onerror="this.style.display='none'" />`
+        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>`;
+
       item.innerHTML = `
         <div class="file-thumb">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-          </svg>
+          ${thumbContent}
         </div>
         <div class="file-meta">
           <div class="file-name">${esc(f.name)}</div>
@@ -360,6 +365,19 @@ async function loadFiles(outDir) {
     document.querySelectorAll(".save-btn").forEach(btn => {
       btn.addEventListener("click", () => triggerSave(btn.dataset.rel, btn.dataset.name));
     });
+
+    // Save Cover Art (.jpg)
+    if (data.cover) {
+      if (dlCoverBtn) {
+        dlCoverBtn.classList.remove("hidden");
+        dlCoverBtn.onclick = () => {
+          const coverTitle = state.currentInfo ? `${sanitizeFolderName(state.currentInfo.title)} - Cover.jpg` : "cover.jpg";
+          triggerSave(data.cover, coverTitle);
+        };
+      }
+    } else {
+      if (dlCoverBtn) dlCoverBtn.classList.add("hidden");
+    }
 
     // Download as ZIP for playlists/folders
     if (data.folder && files.length > 0) {

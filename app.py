@@ -279,6 +279,17 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                 print(f"Failed to fetch Spotify tracks for download: {e}")
                 tracks = []
 
+        # Always save the high-res cover image file in the directory
+        if cover_url:
+            cover_path = out_dir / "cover.jpg"
+            if not cover_path.exists():
+                try:
+                    c_resp = http_requests.get(cover_url, timeout=10)
+                    if c_resp.status_code == 200:
+                        cover_path.write_bytes(c_resp.content)
+                except Exception as e:
+                    print(f"Error saving cover.jpg: {e}")
+
         # If we have the track list, download each track at chosen quality in parallel!
         if tracks:
             total_tracks = len(tracks)
@@ -466,6 +477,17 @@ def start_download():
         _job_queues[job_id] = q
 
     def run():
+        # Always attempt to save the cover image file in the download directory
+        if cover_url:
+            cover_path = out_dir / "cover.jpg"
+            if not cover_path.exists():
+                try:
+                    c_resp = http_requests.get(cover_url, timeout=10)
+                    if c_resp.status_code == 200:
+                        cover_path.write_bytes(c_resp.content)
+                except Exception as e:
+                    print(f"Error saving cover.jpg: {e}")
+
         if source == "spotify" or is_spotify(url):
             _download_spotify(job_id, url, out_dir, title=info_title, tracks=tracks, cover_url=cover_url, codec=codec, quality=quality)
         else:
@@ -519,12 +541,19 @@ def files_for_job():
     out_dir     = Path(out_dir_str) if out_dir_str else BASE_DIR
 
     if not out_dir.exists():
-        return jsonify({"files": [], "folder": ""})
+        return jsonify({"files": [], "folder": "", "cover": ""})
 
     audio_exts = {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"}
     files = []
     is_folder = out_dir != BASE_DIR
     folder_name = out_dir.name if is_folder else ""
+
+    cover_rel = ""
+    for img_name in ("cover.jpg", "cover.png", "cover.jpeg"):
+        img_path = out_dir / img_name
+        if img_path.exists() and img_path.stat().st_size > 500:
+            cover_rel = str(img_path.relative_to(BASE_DIR))
+            break
 
     for path in sorted(out_dir.iterdir()):
         if path.is_file() and path.suffix.lower() in audio_exts:
@@ -537,6 +566,7 @@ def files_for_job():
     return jsonify({
         "files": files,
         "folder": folder_name,
+        "cover": cover_rel,
         "total_size": sum(f["size"] for f in files)
     })
 
@@ -566,10 +596,10 @@ def download_zip():
     zip_filename = f"{sanitize_folder(title or folder)}.zip"
     zip_path = BASE_DIR / f"{folder}.zip"
 
-    audio_exts = {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac"}
+    valid_exts = {".mp3", ".m4a", ".opus", ".webm", ".flac", ".wav", ".aac", ".jpg", ".jpeg", ".png"}
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in target_dir.iterdir():
-            if f.is_file() and f.suffix.lower() in audio_exts:
+            if f.is_file() and f.suffix.lower() in valid_exts:
                 zf.write(f, arcname=f.name)
 
     return send_from_directory(

@@ -559,6 +559,14 @@ body {
   justify-content: center;
   flex-shrink: 0;
   color: var(--c-purple);
+  overflow: hidden;
+}
+.file-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
 }
 .file-thumb svg { width: 20px; height: 20px; }
 
