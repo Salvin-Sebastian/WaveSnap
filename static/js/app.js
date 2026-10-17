@@ -117,12 +117,17 @@ async function fetchInfo() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
     });
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || "Unknown error");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) {
+      const msg = data.error || `Server returned status ${res.status}`;
+      console.error("fetchInfo error:", msg);
+      throw new Error(msg);
+    }
     state.currentInfo = data;
     showInfo(data);
   } catch (err) {
-    toast(`Couldn't fetch info: ${err.message}`, "error");
+    console.error("fetchInfo catch:", err);
+    toast(err.message, "error", 5000);
   } finally {
     setFetching(false);
   }

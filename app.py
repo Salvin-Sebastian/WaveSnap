@@ -38,16 +38,49 @@ _job_lock = threading.Lock()
 
 # ── URL Detection & Helpers ───────────────────────────────────────────────────
 
+def resolve_url(url: str) -> str:
+    url = url.strip()
+    # Extract clean http(s) URL if user pasted text with surrounding words
+    m = re.search(r'https?://[^\s"\'<>]+', url)
+    if m:
+        url = m.group(0)
+
+    # Resolve shortlinks (spotify.link, spoti.fi, youtu.be, etc.)
+    short_domains = ("spotify.link", "spoti.fi", "youtu.be", "tinyurl.com", "bit.ly", "t.co")
+    if any(sd in url.lower() for sd in short_domains):
+        try:
+            resp = http_requests.head(url, allow_redirects=True, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
+            if resp.url and resp.url.startswith("http"):
+                url = resp.url
+        except Exception:
+            try:
+                resp = http_requests.get(url, allow_redirects=True, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
+                if resp.url and resp.url.startswith("http"):
+                    url = resp.url
+            except Exception:
+                pass
+    return url
+
+
 def is_spotify(url: str) -> bool:
-    return "open.spotify.com" in url or "spotify.com" in url
+    u = url.lower()
+    return any(k in u for k in ("spotify.com", "open.spotify", "spotify.link", "spoti.fi"))
+
+
+def get_spotify_id_and_type(url: str) -> tuple[str, str]:
+    """Extract (type, id) from Spotify URL reliably across all formats."""
+    clean = url.split("?")[0].rstrip("/")
+    for t in ("playlist", "album", "track", "artist"):
+        m = re.search(rf'/{t}/([a-zA-Z0-9]+)', clean)
+        if m:
+            return t, m.group(1)
+    parts = clean.split("/")
+    return ("track", parts[-1]) if parts else ("track", "")
 
 
 def spotify_type(url: str) -> str:
-    """Return 'track', 'playlist', 'album', or 'artist'."""
-    for t in ("playlist", "album", "track", "artist"):
-        if f"/{t}/" in url:
-            return t
-    return "track"
+    t, _ = get_spotify_id_and_type(url)
+    return t
 
 
 def sanitize_folder(name: str) -> str:
@@ -165,17 +198,15 @@ def _tag_audio(file_path: Path, title: str, artist: str, album: str = "", cover_
 # ── Spotify Info Extractor ───────────────────────────────────────────────────
 
 def _spotify_info(url: str) -> dict:
-    clean_url = url.split("?")[0].rstrip("/")
-    stype = spotify_type(url)
+    url = resolve_url(url)
+    stype, item_id = get_spotify_id_and_type(url)
     is_playlist = stype in ("playlist", "album", "artist")
+    canonical_url = f"https://open.spotify.com/{stype}/{item_id}" if item_id else url
 
     # Method 1: Extract full entity and trackList from Spotify embed
-    try:
-        parts = clean_url.split("/")
-        if len(parts) >= 2:
-            item_id = parts[-1]
-            item_type = parts[-2]
-            embed_url = f"https://open.spotify.com/embed/{item_type}/{item_id}"
+    if item_id:
+        try:
+            embed_url = f"https://open.spotify.com/embed/{stype}/{item_id}"
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             }
@@ -223,19 +254,19 @@ def _spotify_info(url: str) -> dict:
                             "is_playlist": is_playlist,
                             "count": count,
                             "duration": duration,
-                            "webpage_url": url,
+                            "webpage_url": canonical_url,
                             "source": "spotify",
                             "spotify_type": stype,
                             "tracks": tracks
                         }
-    except Exception as exc:
-        print(f"Spotify embed parse error: {exc}")
+        except Exception as exc:
+            print(f"Spotify embed parse error: {exc}")
 
     # Method 2: Fallback to oEmbed (official API endpoint)
     try:
         resp = http_requests.get(
             "https://open.spotify.com/oembed",
-            params={"url": url},
+            params={"url": canonical_url},
             timeout=10,
             headers={"User-Agent": "WaveSnap/1.0"},
         )
@@ -249,7 +280,7 @@ def _spotify_info(url: str) -> dict:
             "is_playlist": is_playlist,
             "count": 1 if not is_playlist else None,
             "duration": None,
-            "webpage_url": url,
+            "webpage_url": canonical_url,
             "source": "spotify",
             "spotify_type": stype,
             "tracks": [{"title": title, "artist": "Spotify"}] if not is_playlist else []
@@ -404,29 +435,55 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/api/info", methods=["POST"])
+@app.route("/api/info", methods=["POST", "GET"])
 def get_info():
-    data = request.get_json(force=True, silent=True) or {}
-    url  = (data.get("url") or "").strip()
-    if not url:
-        return jsonify({"error": "No URL provided"}), 400
+    data = {}
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+    if not data:
+        data = request.get_json(force=True, silent=True) or {}
+    if not data:
+        data = request.form.to_dict() or request.args.to_dict() or {}
+
+    raw_url = (data.get("url") or request.args.get("url") or "").strip()
+    if not raw_url:
+        return jsonify({"error": "No link or search term provided"}), 400
+
+    url = resolve_url(raw_url)
 
     try:
         if is_spotify(url):
             return jsonify(_spotify_info(url))
 
+        # Check if URL or plain search term
+        is_http = url.startswith("http://") or url.startswith("https://")
+        fetch_target = url if is_http else f"ytsearch1:{url}"
+
         # yt-dlp for YouTube, SoundCloud, Bandcamp, Vimeo, etc.
         opts = {
             "quiet": True,
             "no_warnings": True,
-            "ignoreerrors": True,
+            "ignoreerrors": False,
             "extract_flat": "in_playlist",
             "socket_timeout": 20,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios", "web"],
+                }
+            }
         }
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+            info = ydl.extract_info(fetch_target, download=False)
         if not info:
-            return jsonify({"error": "Could not fetch info — check the URL"}), 400
+            return jsonify({"error": "Could not find audio for this link"}), 400
+
+        # If it was a search query, unwrap the first result
+        if info.get("_type") == "playlist" and "entries" in info and not is_http:
+            entries = info.get("entries", [])
+            if entries:
+                info = entries[0]
+            else:
+                return jsonify({"error": "No results found for your search"}), 400
 
         is_playlist = info.get("_type") == "playlist"
         entries     = info.get("entries", [])
@@ -441,13 +498,16 @@ def get_info():
             "source":      "ytdlp",
         })
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        err_msg = str(exc)
+        print(f"Error fetching info for '{url}': {err_msg}")
+        return jsonify({"error": err_msg}), 400
 
 
 @app.route("/api/download", methods=["POST"])
 def start_download():
     data        = request.get_json(force=True, silent=True) or {}
-    url         = (data.get("url") or "").strip()
+    raw_url     = (data.get("url") or "").strip()
+    url         = resolve_url(raw_url) if raw_url else ""
     info_title  = (data.get("title") or "").strip()
     is_playlist = bool(data.get("is_playlist"))
     source      = data.get("source", "ytdlp")
