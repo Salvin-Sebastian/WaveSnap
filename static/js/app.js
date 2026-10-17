@@ -464,20 +464,20 @@ function resetUI() {
 }
 
 function resetProgress() {
-  progFill.style.width = "0%";
-  progBar.setAttribute("aria-valuenow", "0");
-  progLabel.textContent = "Starting…";
-  progTrack.textContent = "";
-  progSpeed.textContent = "";
-  progPct.textContent = "0%";
+  if (progFill) progFill.style.width = "0%";
+  if (progBar) progBar.setAttribute("aria-valuenow", "0");
+  if (progLabel) progLabel.textContent = "Starting…";
+  if (progTrack) progTrack.textContent = "";
+  if (progSpeed) progSpeed.textContent = "";
+  if (progPct) progPct.textContent = "0%";
 }
 
 function setProgress(pct, speed) {
-  progFill.style.width = `${pct}%`;
-  progBar.setAttribute("aria-valuenow", pct);
-  progLabel.textContent = `Downloading… ${pct}%`;
-  progPct.textContent = `${pct}%`;
-  if (speed) progSpeed.textContent = speed;
+  if (progFill) progFill.style.width = `${pct}%`;
+  if (progBar) progBar.setAttribute("aria-valuenow", pct);
+  if (progLabel) progLabel.textContent = `Downloading… ${pct}%`;
+  if (progPct) progPct.textContent = `${pct}%`;
+  if (speed && progSpeed) progSpeed.textContent = speed;
 }
 
 function sanitizeFolderName(name) {
