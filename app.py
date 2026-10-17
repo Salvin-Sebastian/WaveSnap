@@ -111,7 +111,7 @@ def index():
 
 @app.route("/api/info", methods=["POST"])
 def get_info():
-    data = request.json or {}
+    data = request.get_json(force=True, silent=True) or {}
     url = (data.get("url") or "").strip()
     if not url:
         return jsonify({"error": "No URL provided"}), 400
@@ -147,7 +147,7 @@ def get_info():
 
 @app.route("/api/download", methods=["POST"])
 def start_download():
-    data = request.json or {}
+    data = request.get_json(force=True, silent=True) or {}
     url         = (data.get("url") or "").strip()
     info_title  = (data.get("title") or "").strip()
     is_playlist = bool(data.get("is_playlist"))
@@ -216,7 +216,7 @@ def progress_stream(job_id: str):
 
 @app.route("/api/files-for-job", methods=["POST"])
 def files_for_job():
-    data = request.json or {}
+    data = request.get_json(force=True, silent=True) or {}
     out_dir_str = data.get("out_dir", "")
     out_dir = Path(out_dir_str) if out_dir_str else BASE_DIR
 
