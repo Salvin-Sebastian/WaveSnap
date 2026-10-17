@@ -343,7 +343,7 @@ def sanitize_folder(name: str) -> str:
     return name.strip(". ") or "Unknown"
 
 
-def _make_ytdlp_hook(job_id: str):
+def _make_ytdlp_hook(job_id: str, out_dir: Path = None):
     def hook(d):
         if _job_cancelled.get(job_id):
             raise Exception("Download cancelled by user")
@@ -365,37 +365,82 @@ def _make_ytdlp_hook(job_id: str):
             spd_s = f"{spd/1_000_000:.2f} MB/s" if spd >= 1_000_000 else f"{spd/1024:.1f} KB/s"
             fname = Path(d.get("filename", "")).name
 
+            done_mb = round(done / (1024 * 1024), 1)
+            total_mb = round(total / (1024 * 1024), 1) if total else 0
+
             if is_pl:
                 track_pct = (pct / 100.0) if pct else 0
                 overall_pct = min(92.0, round((((p_index - 1) + track_pct) / p_count) * 92.0, 1))
+
+                prev_bytes = 0
+                if out_dir and out_dir.exists():
+                    prev_bytes = sum(f.stat().st_size for f in out_dir.iterdir() if f.is_file() and f.name != fname)
+                pl_done_bytes = prev_bytes + done
+                pl_done_mb = round(pl_done_bytes / (1024 * 1024), 1)
+
+                if total and p_count:
+                    pl_total_mb = round((total * p_count) / (1024 * 1024), 1)
+                else:
+                    pl_total_mb = round(p_count * 8.5, 1)
+
+                data_text = f"{pl_done_mb:.1f} MB / ~{pl_total_mb:.1f} MB"
                 q.put({
                     "type": "playlist_progress",
                     "percent": overall_pct,
                     "speed": spd_s,
                     "done": p_index,
                     "total": p_count,
+                    "done_mb": pl_done_mb,
+                    "total_mb": pl_total_mb,
+                    "data_text": data_text,
                     "filename": fname,
                     "status_text": f"Packaging song {p_index} of {p_count} into ZIP ({overall_pct}%)"
                 })
             else:
-                q.put({"type": "progress", "percent": pct, "speed": spd_s,
-                       "eta": d.get("eta") or 0, "filename": fname})
+                data_text = f"{done_mb:.1f} MB / {total_mb:.1f} MB" if total_mb else f"{done_mb:.1f} MB"
+                q.put({
+                    "type": "progress",
+                    "percent": pct,
+                    "speed": spd_s,
+                    "eta": d.get("eta") or 0,
+                    "done_mb": done_mb,
+                    "total_mb": total_mb,
+                    "data_text": data_text,
+                    "filename": fname
+                })
 
         elif status == "finished":
             fname = Path(d.get("filename", "")).name
             if is_pl:
                 overall_pct = min(92.0, round((p_index / p_count) * 92.0, 1))
+                cur_bytes = sum(f.stat().st_size for f in out_dir.iterdir() if f.is_file()) if out_dir and out_dir.exists() else 0
+                cur_mb = round(cur_bytes / (1024 * 1024), 1)
+                est_mb = round(p_count * 8.5, 1)
+                data_text = f"{cur_mb:.1f} MB / ~{est_mb:.1f} MB"
                 q.put({
                     "type": "playlist_progress",
                     "percent": overall_pct,
                     "speed": "",
                     "done": p_index,
                     "total": p_count,
+                    "done_mb": cur_mb,
+                    "total_mb": est_mb,
+                    "data_text": data_text,
                     "filename": fname,
                     "status_text": f"Packaging song {p_index} of {p_count} into ZIP ({overall_pct}%)"
                 })
             else:
-                q.put({"type": "track_done", "filename": fname})
+                f_path = (out_dir / fname) if out_dir else None
+                f_size = f_path.stat().st_size if f_path and f_path.exists() else 0
+                f_mb = round(f_size / (1024 * 1024), 1) if f_size else 0
+                data_text = f"{f_mb:.1f} MB / {f_mb:.1f} MB" if f_mb else ""
+                q.put({
+                    "type": "track_done",
+                    "filename": fname,
+                    "done_mb": f_mb,
+                    "total_mb": f_mb,
+                    "data_text": data_text
+                })
 
         elif status == "error":
             if is_pl:
@@ -420,7 +465,7 @@ def _ydl_opts(job_id: str, out_dir: Path, codec: str = "mp3", quality: str = "32
         "socket_timeout": 30,
         "quiet": True,
         "no_warnings": True,
-        "progress_hooks": [_make_ytdlp_hook(job_id)],
+        "progress_hooks": [_make_ytdlp_hook(job_id, out_dir)],
         "geo_bypass": True,
         "extractor_args": {
             "youtube": {
@@ -698,6 +743,8 @@ def _finalize_playlist_zip(job_id: str, out_dir: Path, title: str = "") -> dict 
                 zf.write(f, arcname=f.name)
 
     zip_size = zip_path.stat().st_size
+    zip_mb = round(zip_size / (1024 * 1024), 1)
+    data_text = f"{zip_mb:.1f} MB / {zip_mb:.1f} MB"
     zip_url = f"/api/download-zip?folder={quote(folder_name)}&title={quote(clean_title)}"
 
     if q:
@@ -707,6 +754,9 @@ def _finalize_playlist_zip(job_id: str, out_dir: Path, title: str = "") -> dict 
             "speed": "",
             "done": len(audio_files),
             "total": len(audio_files),
+            "done_mb": zip_mb,
+            "total_mb": zip_mb,
+            "data_text": data_text,
             "filename": zip_filename,
             "status_text": f"🎉 All {len(audio_files)} songs packaged into {zip_filename}! Sending to your device…"
         })
@@ -715,6 +765,9 @@ def _finalize_playlist_zip(job_id: str, out_dir: Path, title: str = "") -> dict 
         "zip_url": zip_url,
         "zip_filename": zip_filename,
         "zip_size": zip_size,
+        "done_mb": zip_mb,
+        "total_mb": zip_mb,
+        "data_text": data_text,
         "count": len(audio_files),
         "folder": folder_name,
         "title": clean_title,
@@ -755,6 +808,7 @@ def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", track
         completed_lock = threading.Lock()
         completed_count = 0
         successful_count = 0
+        est_total_mb = round(total_tracks * 8.5, 1)
 
         q.put({
             "type": "playlist_progress",
@@ -762,6 +816,9 @@ def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", track
             "speed": "",
             "done": 0,
             "total": total_tracks,
+            "done_mb": 0.0,
+            "total_mb": est_total_mb,
+            "data_text": f"0.0 MB / ~{est_total_mb:.1f} MB",
             "filename": f"Starting {default_source} download for {total_tracks} tracks into ZIP…",
             "status_text": f"Packaging 0 of {total_tracks} songs into ZIP (0%)…"
         })
@@ -868,6 +925,16 @@ def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", track
                     completed_count += 1
                     if success:
                         successful_count += 1
+
+                    cur_bytes = sum(f.stat().st_size for f in out_dir.iterdir() if f.is_file()) if out_dir.exists() else 0
+                    cur_mb = round(cur_bytes / (1024 * 1024), 1)
+                    if successful_count > 0:
+                        avg_track_mb = cur_mb / successful_count
+                        est_mb = round(avg_track_mb * total_tracks, 1)
+                    else:
+                        est_mb = round(total_tracks * 8.5, 1)
+
+                    data_text = f"{cur_mb:.1f} MB / ~{est_mb:.1f} MB"
                     # Overall progress climbs steadily from 0% to 92%
                     overall_pct = min(92.0, round((completed_count / total_tracks) * 92.0, 1))
                     status_msg = f"Packaging song {completed_count} of {total_tracks} into ZIP ({overall_pct}%)"
@@ -878,6 +945,9 @@ def _download_tracklist_batch(job_id: str, out_dir: Path, title: str = "", track
                         "speed": "",
                         "done": completed_count,
                         "total": total_tracks,
+                        "done_mb": cur_mb,
+                        "total_mb": est_mb,
+                        "data_text": data_text,
                         "filename": fname_display,
                         "status_text": status_msg
                     })
@@ -972,7 +1042,7 @@ def _download_youtube(job_id: str, url: str, out_dir: Path, title: str = "", is_
                     "quiet": True,
                     "no_warnings": True,
                     "ignoreerrors": True,
-                    "progress_hooks": [_make_ytdlp_hook(job_id)],
+                    "progress_hooks": [_make_ytdlp_hook(job_id, out_dir)],
                 }
                 if bool(shutil.which("ffmpeg")):
                     fb_opts["postprocessors"] = [

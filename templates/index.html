@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/css/style.css?v=2.6" />
+  <link rel="stylesheet" href="/static/css/style.css?v=2.7" />
 </head>
 <body>
 
@@ -196,6 +196,10 @@
         <div id="prog-fill" class="prog-fill"></div>
       </div>
       <div class="prog-pct-row">
+        <span id="prog-bytes" class="prog-bytes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13" style="display:inline-block;vertical-align:-1px;margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span id="prog-bytes-text">0.0 MB</span>
+        </span>
         <p id="prog-percent" class="prog-pct">0%</p>
       </div>
 
@@ -292,6 +296,6 @@
   <!-- Toast container -->
   <div id="toasts" class="toasts" role="alert" aria-live="assertive"></div>
 
-  <script src="/static/js/app.js?v=2.6"></script>
+  <script src="/static/js/app.js?v=2.7"></script>
 </body>
 </html>

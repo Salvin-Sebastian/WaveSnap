@@ -50,8 +50,9 @@ const progLabel   = $("prog-label");
 const progTrack   = $("prog-track");
 const progSpeed   = $("prog-speed");
 const progFill    = $("prog-fill");
-const progPct     = $("prog-percent");
-const progBar     = $("prog-track-bar");
+const progPct       = $("prog-percent");
+const progBytesText = $("prog-bytes-text") || $("prog-bytes");
+const progBar       = $("prog-track-bar");
 const cancelDlBtn = $("cancel-dl-btn");
 
 const filesSection = $("files-section");
@@ -559,7 +560,8 @@ function listenSSE(jobId, outDir) {
 
     if (msg.type === "playlist_progress") {
       const pct = msg.percent || 0;
-      setProgress(pct, msg.speed || "");
+      const dataText = msg.data_text || (msg.done_mb != null && msg.total_mb != null ? `${msg.done_mb} MB / ~${msg.total_mb} MB` : "");
+      setProgress(pct, msg.speed || "", dataText);
       if (msg.status_text) {
         progLabel.textContent = msg.status_text;
       } else if (msg.done && msg.total) {
@@ -575,7 +577,8 @@ function listenSSE(jobId, outDir) {
       // Only track progress here if it's a single song to avoid bouncing
       if (state.tracksTotal <= 1) {
         const pct = msg.percent || 0;
-        setProgress(pct, msg.speed || "");
+        const dataText = msg.data_text || (msg.done_mb != null && msg.total_mb != null ? `${msg.done_mb} MB / ${msg.total_mb} MB` : "");
+        setProgress(pct, msg.speed || "", dataText);
         if (msg.filename) {
           progTrack.textContent = msg.filename.split(/[\\/]/).pop();
         }
@@ -587,7 +590,7 @@ function listenSSE(jobId, outDir) {
       // For single tracks only; playlists track progress continuously via playlist_progress
       if (state.tracksTotal <= 1) {
         progLabel.textContent = "Encoding audio to 320kbps MP3…";
-        setProgress(100, "");
+        setProgress(100, "", msg.data_text || "");
       }
       return;
     }
@@ -608,7 +611,8 @@ function listenSSE(jobId, outDir) {
 
       if (isPlaylist) {
         // Keep progress card visible showing complete packaging state
-        setProgress(100, "");
+        const dataText = msg.data_text || (msg.zip_size ? `${fmtBytes(msg.zip_size)} / ${fmtBytes(msg.zip_size)}` : "");
+        setProgress(100, "", dataText);
         progLabel.textContent = `🎉 All songs packaged into ZIP! Downloading to your ${deviceLabel}…`;
         progTrack.textContent = msg.zip_filename || "Playlist.zip";
 
@@ -879,14 +883,18 @@ function resetProgress() {
   if (progTrack) progTrack.textContent = "";
   if (progSpeed) progSpeed.textContent = "";
   if (progPct) progPct.textContent = "0%";
+  if (progBytesText) progBytesText.textContent = "0.0 MB";
 }
 
-function setProgress(pct, speed) {
+function setProgress(pct, speed, dataText) {
   if (progFill) progFill.style.width = `${pct}%`;
   if (progBar) progBar.setAttribute("aria-valuenow", pct);
   if (progLabel) progLabel.textContent = `Downloading… ${pct}%`;
   if (progPct) progPct.textContent = `${pct}%`;
   if (speed && progSpeed) progSpeed.textContent = speed;
+  if (dataText && progBytesText) {
+    progBytesText.textContent = dataText;
+  }
 }
 
 function sanitizeFolderName(name) {
