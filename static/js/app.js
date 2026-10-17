@@ -27,6 +27,8 @@ const infoTypeBdg = $("info-type-badge");
 const infoTitle   = $("info-title");
 const infoCh      = $("info-channel");
 const infoCountTag = $("info-count-tag");
+const infoSizeTag  = $("info-size-tag");
+const qualitySelect = $("quality-select");
 const infoFolderRow = $("info-folder-row");
 const infoFolderName = $("info-folder-name");
 const dlBtn       = $("download-btn");
@@ -41,6 +43,7 @@ const progPct     = $("prog-percent");
 const progBar     = $("prog-track-bar");
 
 const filesSection = $("files-section");
+const filesTitle  = $("files-title");
 const fileList    = $("file-list");
 const dlAllBtn    = $("dl-all-btn");
 const dlZipBtn    = $("dl-zip-btn");
@@ -63,7 +66,8 @@ function fmtBytes(b) {
   if (!b) return "–";
   if (b < 1024) return `${b} B`;
   if (b < 1048576) return `${(b/1024).toFixed(1)} KB`;
-  return `${(b/1048576).toFixed(2)} MB`;
+  if (b < 1073741824) return `${(b/1048576).toFixed(1)} MB`;
+  return `${(b/1073741824).toFixed(2)} GB`;
 }
 
 function fmtDuration(s) {
@@ -123,6 +127,39 @@ async function fetchInfo() {
   }
 }
 
+function updateEstimatedSize() {
+  if (!state.currentInfo) return;
+  const q = qualitySelect ? qualitySelect.value : "mp3_320";
+  let kbps = 320;
+  if (q.includes("256")) kbps = 256;
+  else if (q.includes("192")) kbps = 192;
+  else if (q.includes("128")) kbps = 128;
+
+  const bytesPerSec = (kbps * 1000) / 8;
+  const info = state.currentInfo;
+
+  let totalSec = 0;
+  if (info.duration) {
+    totalSec = info.duration;
+  } else if (info.tracks && info.tracks.length) {
+    totalSec = info.tracks.reduce((acc, t) => acc + (t.duration || 210), 0);
+  } else if (info.count) {
+    totalSec = info.count * 210;
+  } else {
+    totalSec = 210;
+  }
+
+  const estBytes = totalSec * bytesPerSec;
+  if (infoSizeTag) {
+    infoSizeTag.textContent = `Est. ~${fmtBytes(estBytes)}`;
+    infoSizeTag.style.display = "";
+  }
+}
+
+if (qualitySelect) {
+  qualitySelect.addEventListener("change", updateEstimatedSize);
+}
+
 function showInfo(info) {
   // Thumbnail
   if (info.thumbnail) {
@@ -146,6 +183,9 @@ function showInfo(info) {
     ? (info.count ? `${info.count} songs` : "Playlist")
     : "1 track";
   infoCountTag.style.display = "";
+
+  // Estimated Size
+  updateEstimatedSize();
 
   // Folder indicator (only for playlists)
   if (info.is_playlist) {
@@ -194,6 +234,7 @@ async function startDownload() {
         source: state.currentInfo.source || "ytdlp",
         tracks: state.currentInfo.tracks || [],
         thumbnail: state.currentInfo.thumbnail || "",
+        quality: qualitySelect ? qualitySelect.value : "mp3_320",
       }),
     });
     const data = await res.json();
@@ -279,7 +320,13 @@ async function loadFiles(outDir) {
     filesSection.classList.remove("hidden");
     fileList.innerHTML = "";
 
+    if (filesTitle) {
+      const sizeStr = data.total_size ? ` · ${fmtBytes(data.total_size)}` : "";
+      filesTitle.textContent = `Ready to Save (${files.length} ${files.length === 1 ? "song" : "songs"}${sizeStr})`;
+    }
+
     files.forEach((f, i) => {
+      const ext = (f.name.split('.').pop() || "audio").toUpperCase();
       const item = document.createElement("div");
       item.className = "file-item";
       item.style.animationDelay = `${i * 0.05}s`;
@@ -294,7 +341,7 @@ async function loadFiles(outDir) {
           <div class="file-sub">
             <span>${fmtBytes(f.size)}</span>
             <span>·</span>
-            <span>MP3 · Best Quality</span>
+            <span>${ext} · High Fidelity</span>
             ${f.folder ? `<span>·</span><span class="file-folder">📁 ${esc(f.folder)}</span>` : ""}
           </div>
         </div>
@@ -318,7 +365,8 @@ async function loadFiles(outDir) {
     if (data.folder && files.length > 0) {
       if (dlZipBtn) {
         dlZipBtn.classList.remove("hidden");
-        dlZipBtn.textContent = `Download as ZIP (${files.length} songs)`;
+        const zipSizeStr = data.total_size ? ` (${fmtBytes(data.total_size)})` : ` (${files.length} songs)`;
+        dlZipBtn.textContent = `Download as ZIP${zipSizeStr}`;
         dlZipBtn.onclick = () => {
           const zipTitle = state.currentInfo ? (state.currentInfo.title || data.folder) : data.folder;
           window.location.href = `/api/download-zip?folder=${encodeURIComponent(data.folder)}&title=${encodeURIComponent(zipTitle)}`;

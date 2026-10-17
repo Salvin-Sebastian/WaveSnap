@@ -410,6 +410,41 @@ body {
 .tag-blue   { background: rgba(6,182,212,0.12);  border: 1px solid rgba(6,182,212,0.25);  color: var(--c-cyan); }
 .tag-green  { background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.25); color: var(--c-green); }
 .tag-purple { background: rgba(124,58,237,0.12); border: 1px solid rgba(124,58,237,0.25); color: var(--c-purple); }
+.tag-orange { background: rgba(249,115,22,0.12); border: 1px solid rgba(249,115,22,0.28); color: #fb923c; }
+
+.quality-select-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 2px;
+}
+.quality-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--c-muted);
+  letter-spacing: 0.02em;
+}
+.quality-select {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  color: var(--c-text);
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--t), background var(--t);
+}
+.quality-select:focus {
+  border-color: var(--c-purple);
+  background: rgba(255, 255, 255, 0.08);
+}
+.quality-select option {
+  background: #18181f;
+  color: #fff;
+}
 
 .folder-row {
   display: flex;

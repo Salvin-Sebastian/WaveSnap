@@ -78,7 +78,7 @@ def _make_ytdlp_hook(job_id: str):
     return hook
 
 
-def _ydl_opts(job_id: str, out_dir: Path) -> dict:
+def _ydl_opts(job_id: str, out_dir: Path, codec: str = "mp3", quality: str = "320") -> dict:
     has_ffmpeg = bool(shutil.which("ffmpeg"))
     opts = {
         "format": "bestaudio/best",
@@ -97,47 +97,68 @@ def _ydl_opts(job_id: str, out_dir: Path) -> dict:
     }
     if has_ffmpeg:
         opts["postprocessors"] = [
-            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "320"},
+            {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality},
             {"key": "FFmpegMetadata", "add_metadata": True},
             {"key": "EmbedThumbnail"},
         ]
     return opts
 
 
-# ── Metadata tagging via mutagen ──────────────────────────────────────────────
+# ── Metadata tagging via mutagen (MP3 & M4A/AAC) ──────────────────────────────
 
-def _tag_mp3(file_path: Path, title: str, artist: str, album: str = "", cover_url: str = ""):
+def _tag_audio(file_path: Path, title: str, artist: str, album: str = "", cover_url: str = ""):
     try:
-        from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC, ID3NoHeaderError
-        from mutagen.mp3 import MP3
-        if file_path.suffix.lower() != ".mp3":
-            return
-        try:
-            audio = MP3(file_path, ID3=ID3)
-        except ID3NoHeaderError:
-            audio = MP3(file_path)
-            audio.add_tags()
-        if title:
-            audio.tags.add(TIT2(encoding=3, text=title))
-        if artist:
-            audio.tags.add(TPE1(encoding=3, text=artist))
-        if album:
-            audio.tags.add(TALB(encoding=3, text=album))
-        if cover_url:
+        ext = file_path.suffix.lower()
+        if ext == ".mp3":
+            from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC, ID3NoHeaderError
+            from mutagen.mp3 import MP3
             try:
-                resp = http_requests.get(cover_url, timeout=5)
-                if resp.status_code == 200:
-                    audio.tags.add(APIC(
-                        encoding=3,
-                        mime="image/jpeg",
-                        type=3,
-                        desc="Cover",
-                        data=resp.content
-                    ))
-            except Exception:
-                pass
-        audio.save()
+                audio = MP3(file_path, ID3=ID3)
+            except ID3NoHeaderError:
+                audio = MP3(file_path)
+                audio.add_tags()
+            if title:
+                audio.tags.add(TIT2(encoding=3, text=title))
+            if artist:
+                audio.tags.add(TPE1(encoding=3, text=artist))
+            if album:
+                audio.tags.add(TALB(encoding=3, text=album))
+            if cover_url:
+                try:
+                    resp = http_requests.get(cover_url, timeout=5)
+                    if resp.status_code == 200:
+                        audio.tags.add(APIC(
+                            encoding=3,
+                            mime="image/jpeg",
+                            type=3,
+                            desc="Cover",
+                            data=resp.content
+                        ))
+                except Exception:
+                    pass
+            audio.save()
+
+        elif ext in (".m4a", ".mp4"):
+            from mutagen.mp4 import MP4, MP4Cover
+            audio = MP4(file_path)
+            if title:
+                audio["\xa9nam"] = [title]
+            if artist:
+                audio["\xa9ART"] = [artist]
+            if album:
+                audio["\xa9alb"] = [album]
+            if cover_url:
+                try:
+                    resp = http_requests.get(cover_url, timeout=5)
+                    if resp.status_code == 200:
+                        fmt = MP4Cover.FORMAT_JPEG if (b"JFIF" in resp.content[:20] or b"\xff\xd8" in resp.content[:4]) else MP4Cover.FORMAT_PNG
+                        audio["covr"] = [MP4Cover(resp.content, imageformat=fmt)]
+                except Exception:
+                    pass
+            audio.save()
+
     except Exception as exc:
+        print(f"Error tagging {file_path}: {exc}")
         print(f"Error tagging {file_path}: {exc}")
 
 
@@ -239,7 +260,7 @@ def _spotify_info(url: str) -> dict:
 
 # ── Spotify Downloader ────────────────────────────────────────────────────────
 
-def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tracks: list = None, cover_url: str = ""):
+def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tracks: list = None, cover_url: str = "", codec: str = "mp3", quality: str = "320"):
     q = _job_queues[job_id]
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -258,7 +279,7 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                 print(f"Failed to fetch Spotify tracks for download: {e}")
                 tracks = []
 
-        # If we have the track list, download each track at maximum quality in parallel!
+        # If we have the track list, download each track at chosen quality in parallel!
         if tracks:
             total_tracks = len(tracks)
             completed_lock = threading.Lock()
@@ -283,13 +304,13 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                 base_name = f"{sanitized_artist} - {sanitized_title}"
 
                 # Target file path
-                mp3_path = out_dir / f"{base_name}.mp3"
-                if mp3_path.exists() and mp3_path.stat().st_size > 50000:
+                target_file = out_dir / f"{base_name}.{codec}"
+                if target_file.exists() and target_file.stat().st_size > 50000:
                     with completed_lock:
                         completed_count += 1
                         pct = round((completed_count / total_tracks) * 100, 1)
-                        q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"{base_name}.mp3"})
-                        q.put({"type": "track_done", "filename": f"{base_name}.mp3"})
+                        q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"{base_name}.{codec}"})
+                        q.put({"type": "track_done", "filename": f"{base_name}.{codec}"})
                     return
 
                 query = f"ytsearch1:{t_title} {t_artist} audio"
@@ -306,7 +327,7 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                 }
                 if has_ffmpeg:
                     ydl_opts["postprocessors"] = [
-                        {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "320"},
+                        {"key": "FFmpegExtractAudio", "preferredcodec": codec, "preferredquality": quality},
                         {"key": "FFmpegMetadata", "add_metadata": True},
                     ]
 
@@ -314,15 +335,15 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         ydl.download([query])
 
-                    # Tag the MP3 with official metadata
-                    if mp3_path.exists():
-                        _tag_mp3(mp3_path, title=t_title, artist=t_artist, album=title, cover_url=cover_url)
+                    # Tag the audio with official metadata
+                    if target_file.exists():
+                        _tag_audio(target_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url)
 
                     with completed_lock:
                         completed_count += 1
                         pct = round((completed_count / total_tracks) * 100, 1)
-                        q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"{base_name}.mp3"})
-                        q.put({"type": "track_done", "filename": f"{base_name}.mp3"})
+                        q.put({"type": "progress", "percent": pct, "speed": "", "filename": f"{base_name}.{codec}"})
+                        q.put({"type": "track_done", "filename": f"{base_name}.{codec}"})
                 except Exception as exc:
                     print(f"Error downloading {base_name}: {exc}")
                     with completed_lock:
@@ -420,7 +441,11 @@ def start_download():
     is_playlist = bool(data.get("is_playlist"))
     source      = data.get("source", "ytdlp")
     tracks      = data.get("tracks", [])
-    cover_url   = data.get("thumbnail", "")
+    quality_param = data.get("quality", "mp3_320")
+    if "_" in quality_param:
+        codec, quality = quality_param.split("_", 1)
+    else:
+        codec, quality = "mp3", "320"
 
     if not url:
         return jsonify({"error": "No URL provided"}), 400
@@ -442,10 +467,10 @@ def start_download():
 
     def run():
         if source == "spotify" or is_spotify(url):
-            _download_spotify(job_id, url, out_dir, title=info_title, tracks=tracks, cover_url=cover_url)
+            _download_spotify(job_id, url, out_dir, title=info_title, tracks=tracks, cover_url=cover_url, codec=codec, quality=quality)
         else:
             try:
-                with yt_dlp.YoutubeDL(_ydl_opts(job_id, out_dir)) as ydl:
+                with yt_dlp.YoutubeDL(_ydl_opts(job_id, out_dir, codec=codec, quality=quality)) as ydl:
                     ydl.download([url])
             except Exception as exc:
                 q.put({"type": "error", "message": str(exc)})

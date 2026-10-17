@@ -120,8 +120,17 @@
           <p id="info-channel" class="info-channel"></p>
           <div class="info-tags">
             <span id="info-count-tag" class="tag tag-blue"></span>
-            <span class="tag tag-green">MP3 · 320kbps</span>
-            <span class="tag tag-purple">Album Art + ID3 Tags</span>
+            <span id="info-size-tag" class="tag tag-orange"></span>
+            <span class="tag tag-purple">Album Art + Tags</span>
+          </div>
+          <div class="quality-select-wrap">
+            <label for="quality-select" class="quality-label">Format & Quality:</label>
+            <select id="quality-select" class="quality-select">
+              <option value="mp3_320" selected>MP3 · 320 kbps (Full Quality, ~8 MB/song)</option>
+              <option value="m4a_256">M4A / AAC · 256 kbps (Same Quality, 30% Smaller)</option>
+              <option value="mp3_192">MP3 · 192 kbps (Standard Quality, 40% Smaller)</option>
+              <option value="m4a_128">M4A / AAC · 128 kbps (Compact, 60% Smaller)</option>
+            </select>
           </div>
           <div id="info-folder-row" class="folder-row hidden">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -162,7 +171,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
           </svg>
-          Ready to Save
+          <span id="files-title">Ready to Save</span>
         </h2>
         <div class="files-actions">
           <button id="dl-zip-btn" class="btn btn-sm btn-primary hidden">Download as ZIP (.zip)</button>
