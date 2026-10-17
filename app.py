@@ -1204,12 +1204,19 @@ def download_file():
         return "File not found", 404
 
     custom_name = request.args.get("name", "").strip() or full.name
-    return send_from_directory(
+    response = send_from_directory(
         str(full.parent),
         full.name,
         as_attachment=True,
         download_name=custom_name
     )
+    # Ensure all mobile and desktop browsers treat as direct file download
+    response.headers["Content-Description"] = "File Transfer"
+    response.headers["Content-Transfer-Encoding"] = "binary"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.route("/api/download-zip")
@@ -1247,12 +1254,18 @@ def download_zip():
             pass
         return response
 
-    return send_from_directory(
+    response = send_from_directory(
         str(BASE_DIR.resolve()),
         zip_path.name,
         as_attachment=True,
         download_name=zip_filename
     )
+    response.headers["Content-Description"] = "File Transfer"
+    response.headers["Content-Transfer-Encoding"] = "binary"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.route("/api/cleanup-job", methods=["POST"])

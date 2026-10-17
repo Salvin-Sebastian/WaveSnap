@@ -607,34 +607,36 @@ async function loadFiles(outDir) {
 
     // ── Setup Direct Save Hero Banner ──
     if (saveHero) {
+      const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const deviceLabel = isMobile ? "Phone" : "Device";
+
       if (files.length === 1) {
         const singleExt = (files[0].name.split('.').pop() || "mp3").toUpperCase();
-        if (saveHeroBadge) saveHeroBadge.textContent = "Conversion Complete";
-        if (saveHeroHeadline) saveHeroHeadline.textContent = `Save "${files[0].name}" to Your Computer`;
-        if (saveHeroSub) saveHeroSub.textContent = `Your high-fidelity audio is ready. If your browser didn't automatically prompt you, click the glowing button below to save directly into your Downloads folder.`;
-        if (heroDlText) heroDlText.textContent = `Save to My Computer (${singleExt} · ${fmtBytes(files[0].size)})`;
+        if (saveHeroBadge) saveHeroBadge.textContent = "Audio Ready";
+        if (saveHeroHeadline) saveHeroHeadline.textContent = `Save "${files[0].name}" to Your Device`;
+        if (saveHeroSub) saveHeroSub.textContent = `Your 320kbps MP3 with album artwork is ready. Tap the button below to save directly into your ${deviceLabel}'s Downloads folder.`;
+        if (heroDlText) heroDlText.textContent = `Save to My ${deviceLabel} (${singleExt} · ${fmtBytes(files[0].size)})`;
         if (heroDlBtn) heroDlBtn.onclick = () => {
           const dlUrl = `/api/download-file?path=${encodeURIComponent(files[0].rel)}&name=${encodeURIComponent(files[0].name || "")}`;
-          window.location.assign(dlUrl);
+          triggerBrowserDownload(dlUrl, files[0].name);
         };
 
         // Auto-trigger browser download to device for single song
         triggerSave(files[0].rel, files[0].name);
-        toast(`Sending "${files[0].name}" to your Downloads folder…`, "success", 4000);
+        toast(`Sending "${files[0].name}" to your ${deviceLabel}…`, "success", 4000);
       } else {
         if (saveHeroBadge) saveHeroBadge.textContent = `Playlist Ready (${files.length} Songs)`;
-        if (saveHeroHeadline) saveHeroHeadline.textContent = `Save "${zipTitle}.zip" to Your Computer`;
-        if (saveHeroSub) saveHeroSub.textContent = `All ${files.length} songs and album art are packaged in a ZIP file. If download hasn't started, click the button below.`;
-        if (heroDlText) heroDlText.textContent = `Save All to My Computer (.ZIP${totalSizeStr})`;
+        if (saveHeroHeadline) saveHeroHeadline.textContent = `Save "${zipTitle}.zip" to Your Device`;
+        if (saveHeroSub) saveHeroSub.textContent = `All ${files.length} songs and album art are packaged in a ZIP archive. Tap below to download to your ${deviceLabel}, or save individual songs below.`;
+        if (heroDlText) heroDlText.textContent = `Save All to My ${deviceLabel} (.ZIP${totalSizeStr})`;
         if (heroDlBtn) heroDlBtn.onclick = () => {
-          const zipUrl = `/api/download-zip?folder=${encodeURIComponent(data.folder)}&title=${encodeURIComponent(zipTitle)}`;
-          window.location.assign(zipUrl);
+          triggerZipDownload(data.folder, zipTitle);
         };
 
         // Auto-trigger browser download to device for playlist ZIP
         if (data.folder) {
           triggerZipDownload(data.folder, zipTitle);
-          toast(`Sending "${zipTitle}.zip" to your Downloads folder…`, "success", 5000);
+          toast(`Sending "${zipTitle}.zip" to your ${deviceLabel}…`, "success", 5000);
         }
       }
 
@@ -751,20 +753,15 @@ function triggerZipDownload(folder, title) {
 }
 
 function triggerBrowserDownload(url, filename) {
-  // Method 1: Invisible iframe — reliable background download trigger for Content-Disposition: attachment
-  try {
-    const ifr = document.createElement("iframe");
-    ifr.style.display = "none";
-    ifr.src = url;
-    document.body.appendChild(ifr);
-    setTimeout(() => {
-      if (ifr.parentNode) ifr.parentNode.removeChild(ifr);
-    }, 60000);
-  } catch (e) {
-    console.warn("Iframe download trigger error:", e);
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+  if (isIOS) {
+    // iOS Safari triggers native file download dialog reliably via window.location.assign
+    window.location.assign(url);
+    return;
   }
 
-  // Method 2: Anchor click fallback
+  // Android, Windows PC, Mac, Linux: single clean anchor click
   try {
     const a = document.createElement("a");
     a.href = url;
@@ -776,7 +773,8 @@ function triggerBrowserDownload(url, filename) {
       if (a.parentNode) a.parentNode.removeChild(a);
     }, 2000);
   } catch (e) {
-    console.warn("Anchor fallback error:", e);
+    console.warn("Anchor download error, falling back to location.assign:", e);
+    window.location.assign(url);
   }
 }
 
