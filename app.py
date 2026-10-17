@@ -32,8 +32,9 @@ IS_CLOUD = (
 BASE_DIR = Path(tempfile.gettempdir()) / "wavesnap" if IS_CLOUD else Path("downloads")
 BASE_DIR.mkdir(parents=True, exist_ok=True)
 
-# Per-job SSE queues
+# Per-job SSE queues & cancellation state
 _job_queues: dict[str, queue.Queue] = {}
+_job_cancelled: dict[str, bool] = {}
 _job_lock = threading.Lock()
 
 
@@ -114,6 +115,8 @@ def sanitize_folder(name: str) -> str:
 
 def _make_ytdlp_hook(job_id: str):
     def hook(d):
+        if _job_cancelled.get(job_id):
+            raise Exception("Download cancelled by user")
         q = _job_queues.get(job_id)
         if not q:
             return
@@ -374,6 +377,8 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
             })
 
             def download_single_track(idx: int, tr: dict):
+                if _job_cancelled.get(job_id):
+                    return
                 nonlocal completed_count
                 t_title = tr.get("title", "").strip()
                 t_artist = tr.get("artist", "").strip()
@@ -418,11 +423,13 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
                     ]
 
                 try:
+                    if _job_cancelled.get(job_id):
+                        return
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         ydl.download([query])
 
                     # Tag the audio with official metadata and cached cover
-                    if target_file.exists():
+                    if target_file.exists() and not _job_cancelled.get(job_id):
                         _tag_audio(target_file, title=t_title, artist=t_artist, album=title, cover_url=cover_url, cover_data=cover_data)
 
                     with completed_lock:
@@ -440,8 +447,16 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
             # Download with 3 concurrent workers for high throughput without rate limits
             workers = min(3, max(1, total_tracks))
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = [executor.submit(download_single_track, i, tr) for i, tr in enumerate(tracks, 1)]
-                concurrent.futures.wait(futures)
+                futures = []
+                for i, tr in enumerate(tracks, 1):
+                    if _job_cancelled.get(job_id):
+                        break
+                    futures.append(executor.submit(download_single_track, i, tr))
+                for fut in concurrent.futures.as_completed(futures):
+                    if _job_cancelled.get(job_id):
+                        for f in futures:
+                            f.cancel()
+                        break
 
         else:
             # Fallback to spotdl CLI if installed
@@ -461,15 +476,23 @@ def _download_spotify(job_id: str, url: str, out_dir: Path, title: str = "", tra
             ]
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
             for raw in proc.stdout:
+                if _job_cancelled.get(job_id):
+                    proc.kill()
+                    break
                 line = raw.strip()
                 if line:
                     q.put({"type": "progress", "percent": 50, "speed": "", "filename": line})
             proc.wait()
 
     except Exception as exc:
-        q.put({"type": "error", "message": str(exc)})
+        if not _job_cancelled.get(job_id):
+            q.put({"type": "error", "message": str(exc)})
     finally:
-        q.put({"type": "done", "out_dir": str(out_dir)})
+        if _job_cancelled.get(job_id):
+            shutil.rmtree(out_dir, ignore_errors=True)
+            q.put({"type": "cancelled", "message": "Download stopped by user"})
+        else:
+            q.put({"type": "done", "out_dir": str(out_dir)})
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -576,9 +599,12 @@ def start_download():
     q: queue.Queue = queue.Queue()
     with _job_lock:
         _job_queues[job_id] = q
+        _job_cancelled[job_id] = False
 
     def run():
         try:
+            if _job_cancelled.get(job_id):
+                return
             # Always attempt to save the cover image file in the download directory
             if cover_url:
                 cover_path = out_dir / "cover.jpg"
@@ -597,13 +623,22 @@ def start_download():
                     with yt_dlp.YoutubeDL(_ydl_opts(job_id, out_dir, codec=codec, quality=quality)) as ydl:
                         ydl.download([url])
                 except Exception as exc:
-                    q.put({"type": "error", "message": str(exc)})
+                    if _job_cancelled.get(job_id):
+                        shutil.rmtree(out_dir, ignore_errors=True)
+                        q.put({"type": "cancelled", "message": "Download stopped by user"})
+                    else:
+                        q.put({"type": "error", "message": str(exc)})
                 finally:
-                    q.put({"type": "done", "out_dir": str(out_dir)})
+                    if not _job_cancelled.get(job_id):
+                        q.put({"type": "done", "out_dir": str(out_dir)})
         except Exception as exc:
-            print(f"Download thread exception: {exc}")
-            q.put({"type": "error", "message": str(exc)})
-            q.put({"type": "done", "out_dir": str(out_dir)})
+            if _job_cancelled.get(job_id):
+                shutil.rmtree(out_dir, ignore_errors=True)
+                q.put({"type": "cancelled", "message": "Download stopped by user"})
+            else:
+                print(f"Download thread exception: {exc}")
+                q.put({"type": "error", "message": str(exc)})
+                q.put({"type": "done", "out_dir": str(out_dir)})
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -612,6 +647,16 @@ def start_download():
         "out_dir": str(out_dir),
         "folder": folder_name,
     })
+
+
+@app.route("/api/cancel/<job_id>", methods=["POST"])
+def cancel_job(job_id: str):
+    with _job_lock:
+        _job_cancelled[job_id] = True
+    q = _job_queues.get(job_id)
+    if q:
+        q.put({"type": "cancelled", "message": "Download stopped by user"})
+    return jsonify({"status": "cancelled", "job_id": job_id})
 
 
 @app.route("/api/progress/<job_id>")
@@ -628,7 +673,7 @@ def progress_stream(job_id: str):
             try:
                 msg = q.get(timeout=30)
                 yield f"data: {json.dumps(msg)}\n\n"
-                if msg.get("type") == "done":
+                if msg.get("type") in ("done", "cancelled"):
                     break
             except queue.Empty:
                 yield 'data: {"type":"ping"}\n\n'

@@ -156,7 +156,16 @@
           <span id="prog-label" class="prog-label">Preparing…</span>
           <span id="prog-track" class="prog-track"></span>
         </div>
-        <span id="prog-speed" class="prog-speed"></span>
+        <div class="prog-actions">
+          <span id="prog-speed" class="prog-speed"></span>
+          <button id="cancel-dl-btn" class="btn-cancel" title="Stop downloading" aria-label="Cancel download">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+            <span>Cancel</span>
+          </button>
+        </div>
       </div>
       <div id="prog-track-bar" class="prog-track-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <div id="prog-fill" class="prog-fill"></div>

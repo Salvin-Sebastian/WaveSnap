@@ -483,8 +483,42 @@ body {
 @keyframes spin { to { transform: rotate(360deg); } }
 .prog-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .prog-label { font-weight: 700; font-size: 0.95rem; }
-.prog-track { font-size: 0.75rem; color: var(--c-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.prog-speed { font-size: 0.8rem; color: var(--c-cyan); font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+.prog-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.prog-speed {
+  font-size: 0.8rem;
+  color: var(--c-cyan);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.btn-cancel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: var(--r-pill);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--t);
+}
+.btn-cancel:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #fff;
+  transform: translateY(-1px);
+}
+.btn-cancel:active {
+  transform: translateY(0);
+}
 
 .prog-track-bar {
   height: 8px;

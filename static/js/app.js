@@ -41,6 +41,7 @@ const progSpeed   = $("prog-speed");
 const progFill    = $("prog-fill");
 const progPct     = $("prog-percent");
 const progBar     = $("prog-track-bar");
+const cancelDlBtn = $("cancel-dl-btn");
 
 const filesSection = $("files-section");
 const filesTitle  = $("files-title");
@@ -222,12 +223,49 @@ function showInfo(info) {
 
 // ── Download ─────────────────────────────────────────────────
 dlBtn.addEventListener("click", startDownload);
+if (cancelDlBtn) cancelDlBtn.addEventListener("click", cancelDownload);
+
+function resetCancelBtn() {
+  if (!cancelDlBtn) return;
+  cancelDlBtn.disabled = false;
+  cancelDlBtn.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13">
+      <line x1="18" y1="6" x2="6" y2="18"/>
+      <line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
+    <span>Cancel</span>`;
+}
+
+async function cancelDownload() {
+  if (!state.currentJobId) return;
+  if (cancelDlBtn) {
+    cancelDlBtn.disabled = true;
+    cancelDlBtn.innerHTML = `<span>Stopping…</span>`;
+  }
+
+  try {
+    await fetch(`/api/cancel/${encodeURIComponent(state.currentJobId)}`, { method: "POST" });
+  } catch (err) {
+    console.error("Cancel failed:", err);
+  }
+
+  if (state.activeSSE) {
+    state.activeSSE.close();
+    state.activeSSE = null;
+  }
+
+  progSection.classList.add("hidden");
+  dlBtn.disabled = false;
+  resetCancelBtn();
+  toast("Download stopped", "info", 3000);
+}
 
 async function startDownload() {
   const url = urlInput.value.trim();
   if (!url || !state.currentInfo) return;
 
   dlBtn.disabled = true;
+  resetCancelBtn();
   resetProgress();
   progSection.classList.remove("hidden");
   filesSection.classList.add("hidden");
@@ -275,6 +313,16 @@ function listenSSE(jobId, outDir) {
     try { msg = JSON.parse(e.data); } catch { return; }
 
     if (msg.type === "ping") return;
+
+    if (msg.type === "cancelled") {
+      state.activeSSE.close();
+      state.activeSSE = null;
+      progSection.classList.add("hidden");
+      dlBtn.disabled = false;
+      resetCancelBtn();
+      toast(msg.message || "Download stopped", "info", 3000);
+      return;
+    }
 
     if (msg.type === "progress") {
       const pct = msg.percent || 0;
